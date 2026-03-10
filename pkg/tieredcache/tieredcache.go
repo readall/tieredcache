@@ -106,7 +106,7 @@ func (c *TieredCache) Initialize() error {
 	l1Cfg := &l1.Config{
 		SSDPath:        c.cfg.TieredCache.L1.SSDPath,
 		ValueLogPath:   c.cfg.TieredCache.L1.ValueLogPath,
-		MaxCapacityTB:  c.cfg.TieredCache.L1.MaxCapacityTB,
+		MaxCapacityGB:  c.cfg.TieredCache.L1.MaxCapacityGB,
 		ShardCount:     c.cfg.TieredCache.L1.ShardCount,
 		SyncMode:       c.cfg.TieredCache.L1.SyncMode,
 		SyncIntervalMs: c.cfg.TieredCache.L1.SyncIntervalMs,

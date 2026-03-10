@@ -17,8 +17,8 @@ tieredcache:
 
   # L1 Badger SSD Cache
   l1:
-    max_capacity_tb: 10          # 10TB max
-    shard_count: 32               # 32 shards
+    max_capacity_gb: 2          # 10TB = 10240GB
+    shard_count: 12               # 32 shards
     ssd_path: /mnt/nvme0         # SSD mount point
     value_log_path: /mnt/nvme1   # Separate volume recommended
     sync_mode: periodic           # or immediate, disabled
@@ -30,7 +30,7 @@ tieredcache:
 
   # L2 Cold Tier Sinks
   l2:
-    enabled: true
+    enabled: false
     sinks:
       kafka:
         enabled: true

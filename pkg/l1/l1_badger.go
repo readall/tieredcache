@@ -53,7 +53,7 @@ type badgerShard struct {
 type Config struct {
 	SSDPath        string
 	ValueLogPath   string
-	MaxCapacityTB  float64
+	MaxCapacityGB  float64
 	ShardCount     uint32
 	SyncMode       string
 	SyncIntervalMs uint32
@@ -83,8 +83,8 @@ func New(cfg *Config) (*L1Cache, error) {
 		return nil, fmt.Errorf("ssd_path cannot be empty")
 	}
 
-	if cfg.MaxCapacityTB <= 0 {
-		return nil, fmt.Errorf("max_capacity_tb must be greater than 0")
+	if cfg.MaxCapacityGB <= 0 {
+		return nil, fmt.Errorf("max_capacity_gb must be greater than 0")
 	}
 
 	if cfg.ShardCount == 0 {
@@ -92,7 +92,7 @@ func New(cfg *Config) (*L1Cache, error) {
 	}
 
 	// Calculate max capacity in bytes
-	maxCapacity := uint64(cfg.MaxCapacityTB * 1024 * 1024 * 1024 * 1024)
+	maxCapacity := uint64(cfg.MaxCapacityGB * 1024 * 1024 * 1024)
 
 	// Create directories
 	if err := os.MkdirAll(cfg.SSDPath, 0755); err != nil {

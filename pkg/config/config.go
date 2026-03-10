@@ -71,8 +71,8 @@ type L0Config struct {
 
 // L1Config contains L1 Badger SSD cache settings
 type L1Config struct {
-	// MaxCapacityTB is the maximum capacity in terabytes
-	MaxCapacityTB float64 `yaml:"max_capacity_tb"`
+	// MaxCapacityGB is the maximum capacity in gigabytes
+	MaxCapacityGB float64 `yaml:"max_capacity_gb"`
 
 	// ShardCount is the number of shards
 	ShardCount uint32 `yaml:"shard_count"`
@@ -335,7 +335,7 @@ func DefaultConfig() *Config {
 				SnapshotPath:        "./data/l0_snapshots",
 			},
 			L1: L1Config{
-				MaxCapacityTB:  10.0,           // 10TB
+				MaxCapacityGB:  10240.0,        // 10TB = 10240GB
 				ShardCount:     uint32(numCPU), // 1x CPU cores
 				SSDPath:        "./data/l1",
 				ValueLogPath:   "./data/l1_vlog",
@@ -579,12 +579,12 @@ func validateL0Config(cfg *L0Config) error {
 }
 
 func validateL1Config(cfg *L1Config) error {
-	if cfg.MaxCapacityTB <= 0 {
-		return common.NewConfigError("tieredcache.l1.max_capacity_tb", cfg.MaxCapacityTB, "must be greater than 0", "set a valid capacity (e.g., 10)")
+	if cfg.MaxCapacityGB <= 0 {
+		return common.NewConfigError("tieredcache.l1.max_capacity_gb", cfg.MaxCapacityGB, "must be greater than 0", "set a valid capacity (e.g., 10240 for 10TB)")
 	}
 
-	if cfg.MaxCapacityTB > 100 {
-		return common.NewConfigError("tieredcache.l1.max_capacity_tb", cfg.MaxCapacityTB, "exceeds maximum (100TB)", "reduce capacity")
+	if cfg.MaxCapacityGB > 102400 {
+		return common.NewConfigError("tieredcache.l1.max_capacity_gb", cfg.MaxCapacityGB, "exceeds maximum (100TB = 102400GB)", "reduce capacity")
 	}
 
 	if cfg.ShardCount == 0 {
@@ -741,7 +741,7 @@ func (c *Config) GetMaxMemoryBytes() uint64 {
 
 // GetMaxCapacityBytes returns the max L1 capacity in bytes
 func (c *Config) GetMaxCapacityBytes() uint64 {
-	return uint64(c.TieredCache.L1.MaxCapacityTB * 1024 * 1024 * 1024 * 1024)
+	return uint64(c.TieredCache.L1.MaxCapacityGB * 1024 * 1024 * 1024)
 }
 
 // GetSyncMode returns the sync mode as duration
