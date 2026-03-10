@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v4/options"
 )
 
 // L1Cache represents the L1 Badger SSD cache with 32 shards
@@ -130,7 +131,7 @@ func New(cfg *Config) (*L1Cache, error) {
 		// Configure value log if separate path is provided
 		if cfg.ValueLogPath != "" {
 			vlogPath := filepath.Join(cfg.ValueLogPath, fmt.Sprintf("shard_%d", i))
-			opts.ValueLogPath = vlogPath
+			opts.ValueDir = vlogPath
 		}
 
 		// Configure sync mode
@@ -147,16 +148,16 @@ func New(cfg *Config) (*L1Cache, error) {
 		// Configure compression
 		switch cfg.Compression {
 		case "zstd":
-			opts.CompressionEnabled = true
+			opts.Compression = options.ZSTD
 		case "snappy":
-			opts.CompressionEnabled = true
+			opts.Compression = options.Snappy
 		default:
-			opts.CompressionEnabled = false
+			opts.Compression = options.None
 		}
 
 		// Performance tuning
 		if cfg.MaxTableSize > 0 {
-			opts.MaxTableSize = cfg.MaxTableSize
+			opts.MemTableSize = int64(cfg.MaxTableSize)
 		}
 		if cfg.NumGoroutines > 0 {
 			opts.NumGoroutines = cfg.NumGoroutines

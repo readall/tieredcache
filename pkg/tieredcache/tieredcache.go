@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tosha-tian/tieredcache/pkg/common"
-	"github.com/tosha-tian/tieredcache/pkg/config"
-	"github.com/tosha-tian/tieredcache/pkg/l0"
-	"github.com/tosha-tian/tieredcache/pkg/l1"
-	"github.com/tosha-tian/tieredcache/pkg/l2"
-	"github.com/tosha-tian/tieredcache/pkg/replay"
+	"tieredcache/pkg/common"
+	"tieredcache/pkg/config"
+	"tieredcache/pkg/l0"
+	"tieredcache/pkg/l1"
+	"tieredcache/pkg/l2"
+	"tieredcache/pkg/replay"
 )
 
 // TieredCache is the main tiered cache implementation

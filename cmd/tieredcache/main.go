@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tosha-tian/tieredcache/pkg/config"
-	"github.com/tosha-tian/tieredcache/pkg/tieredcache"
+	"tieredcache/pkg/config"
+	"tieredcache/pkg/tieredcache"
 )
 
 func main() {

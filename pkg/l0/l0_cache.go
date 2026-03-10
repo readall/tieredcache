@@ -144,7 +144,7 @@ func New(cfg *Config) (*L0Cache, error) {
 // Get retrieves a value from the cache
 func (c *L0Cache) Get(ctx context.Context, key string) ([]byte, error) {
 	if c.closed.Load() {
-		return nil, common.NewInitError("l0", "get", common.ErrCodeClosed.Error(), false)
+		return nil, common.NewInitError("l0", "get", common.ErrCodeClosed, false)
 	}
 
 	if key == "" {
@@ -187,7 +187,7 @@ func (c *L0Cache) Get(ctx context.Context, key string) ([]byte, error) {
 // Set stores a value in the cache
 func (c *L0Cache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	if c.closed.Load() {
-		return common.NewInitError("l0", "set", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("l0", "set", common.ErrCodeClosed, false)
 	}
 
 	if key == "" {
@@ -239,7 +239,7 @@ func (c *L0Cache) Set(ctx context.Context, key string, value []byte, ttl time.Du
 // Delete removes a value from the cache
 func (c *L0Cache) Delete(ctx context.Context, key string) error {
 	if c.closed.Load() {
-		return common.NewInitError("l0", "delete", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("l0", "delete", common.ErrCodeClosed, false)
 	}
 
 	if key == "" {
@@ -288,7 +288,7 @@ func (c *L0Cache) GetOrSet(ctx context.Context, key string, value []byte, ttl ti
 // Exists checks if a key exists in the cache
 func (c *L0Cache) Exists(ctx context.Context, key string) (bool, error) {
 	if c.closed.Load() {
-		return false, common.NewInitError("l0", "exists", common.ErrCodeClosed.Error(), false)
+		return false, common.NewInitError("l0", "exists", common.ErrCodeClosed, false)
 	}
 
 	shard := c.getShard(key)
@@ -311,7 +311,7 @@ func (c *L0Cache) Exists(ctx context.Context, key string) (bool, error) {
 // GetTier returns the current tier of a key (for multi-tier awareness)
 func (c *L0Cache) GetTier(ctx context.Context, key string) (common.Tier, error) {
 	if c.closed.Load() {
-		return common.TierUnknown, common.NewInitError("l0", "get_tier", common.ErrCodeClosed.Error(), false)
+		return common.TierUnknown, common.NewInitError("l0", "get_tier", common.ErrCodeClosed, false)
 	}
 
 	shard := c.getShard(key)
@@ -330,7 +330,7 @@ func (c *L0Cache) GetTier(ctx context.Context, key string) (common.Tier, error) 
 // Stats returns cache statistics
 func (c *L0Cache) Stats() (Stats, error) {
 	if c.closed.Load() {
-		return Stats{}, common.NewInitError("l0", "stats", common.ErrCodeClosed.Error(), false)
+		return Stats{}, common.NewInitError("l0", "stats", common.ErrCodeClosed, false)
 	}
 
 	totalHits := uint64(0)
@@ -501,7 +501,7 @@ func (c *L0Cache) snapshot() error {
 // Restore restores the cache from a snapshot
 func (c *L0Cache) Restore(path string) error {
 	if c.closed.Load() {
-		return common.NewInitError("l0", "restore", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("l0", "restore", common.ErrCodeClosed, false)
 	}
 
 	// Implementation would read from disk
@@ -511,7 +511,7 @@ func (c *L0Cache) Restore(path string) error {
 // EvictCandidates returns entries that are candidates for eviction
 func (c *L0Cache) EvictCandidates(count int) ([]*common.CacheEntry, error) {
 	if c.closed.Load() {
-		return nil, common.NewInitError("l0", "evict_candidates", common.ErrCodeClosed.Error(), false)
+		return nil, common.NewInitError("l0", "evict_candidates", common.ErrCodeClosed, false)
 	}
 
 	var candidates []*common.CacheEntry
@@ -537,7 +537,7 @@ func (c *L0Cache) EvictCandidates(count int) ([]*common.CacheEntry, error) {
 // Promote moves an entry to another tier (returns the entry data for promotion)
 func (c *L0Cache) Promote(ctx context.Context, key string) (*common.CacheEntry, error) {
 	if c.closed.Load() {
-		return nil, common.NewInitError("l0", "promote", common.ErrCodeClosed.Error(), false)
+		return nil, common.NewInitError("l0", "promote", common.ErrCodeClosed, false)
 	}
 
 	shard := c.getShard(key)
@@ -556,7 +556,7 @@ func (c *L0Cache) Promote(ctx context.Context, key string) (*common.CacheEntry, 
 // Demote removes an entry from L0 (for tier-down after L1 write succeeds)
 func (c *L0Cache) Demote(ctx context.Context, key string) error {
 	if c.closed.Load() {
-		return common.NewInitError("l0", "demote", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("l0", "demote", common.ErrCodeClosed, false)
 	}
 
 	shard := c.getShard(key)

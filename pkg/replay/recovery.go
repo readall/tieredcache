@@ -355,7 +355,6 @@ func (m *RecoveryManager) findLatestCheckpoint() (uint64, error) {
 	}
 
 	var latestSeq uint64
-	var latestFile string
 
 	for _, file := range files {
 		if file.IsDir() {
