@@ -301,18 +301,18 @@ func DefaultConfig() *Config {
 	return &Config{
 		TieredCache: TieredCacheConfig{
 			L0: L0Config{
-				MaxMemoryMB:         8192,        // 8GB
-				MaxPayloadBytes:     32768,       // 32KB
-				WeightedUnitBytes:   4096,        // 4KB
-				ShardCount:          64,          // 64 shards
-				EvictionPolicy:      "clock_pro", // Clock-Pro algorithm
-				SnapshotIntervalSec: 300,         // 5 minutes
+				MaxMemoryMB:         8192,                             // 8GB
+				MaxPayloadBytes:     32768,                            // 32KB
+				WeightedUnitBytes:   uint32(common.WeightedUnitBytes), // 4KB
+				ShardCount:          common.DefaultL0ShardCount,       // 64 shards
+				EvictionPolicy:      "clock_pro",                      // Clock-Pro algorithm
+				SnapshotIntervalSec: 300,                              // 5 minutes
 				EnableStats:         true,
 				SnapshotPath:        "./data/l0_snapshots",
 			},
 			L1: L1Config{
-				MaxCapacityTB:  10.0, // 10TB
-				ShardCount:     32,   // 32 shards
+				MaxCapacityTB:  10.0,                       // 10TB
+				ShardCount:     common.DefaultL1ShardCount, // 32 shards
 				SSDPath:        "./data/l1",
 				ValueLogPath:   "./data/l1_vlog",
 				SyncMode:       "periodic", // Periodic sync
@@ -372,9 +372,9 @@ func DefaultConfig() *Config {
 			},
 			Replay: ReplayConfig{
 				WALPath:            "./data/wal",
-				MaxReplayWorkers:   4,
+				MaxReplayWorkers:   common.DefaultMaxReplayWorkers,
 				VerifyOnRecovery:   true,
-				CheckpointInterval: 10000,
+				CheckpointInterval: common.DefaultCheckpointInterval,
 				EnableCheckpoint:   true,
 				CheckpointPath:     "./data/checkpoints",
 				MaxReplayTimeSec:   300, // 5 minutes

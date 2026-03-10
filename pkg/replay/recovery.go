@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"tieredcache/pkg/common"
 	"time"
 )
 
@@ -75,11 +76,11 @@ func NewRecoveryManager(walPath string, checkpointPath string, maxWorkers int, c
 	}
 
 	if maxWorkers <= 0 {
-		maxWorkers = 4
+		maxWorkers = common.DefaultMaxReplayWorkers
 	}
 
 	if checkpointInterval <= 0 {
-		checkpointInterval = 10000
+		checkpointInterval = common.DefaultCheckpointInterval
 	}
 
 	// Create directories
@@ -240,8 +241,8 @@ func (m *RecoveryManager) Recover(ctx context.Context, applyFunc func(*WALEntry)
 
 	// Apply entries
 	var wg sync.WaitGroup
-	entryChan := make(chan *WALEntry, 100)
-	errorChan := make(chan error, 10)
+	entryChan := make(chan *WALEntry, common.WALEntryChannelBuffer)
+	errorChan := make(chan error, common.ErrorChannelBuffer)
 
 	// Start workers
 	for i := 0; i < m.maxWorkers; i++ {
@@ -420,7 +421,7 @@ type WALReader struct {
 // ReadEntry reads a single WAL entry
 func (r *WALReader) ReadEntry() (*WALEntry, error) {
 	// Read size (8 bytes)
-	sizeBuf := make([]byte, 8)
+	sizeBuf := make([]byte, common.WALHeaderSize)
 	_, err := r.file.Read(sizeBuf)
 	if err != nil {
 		return nil, err

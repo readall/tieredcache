@@ -9,13 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	"tieredcache/pkg/common"
 	"tieredcache/pkg/config"
 	"tieredcache/pkg/tieredcache"
 )
 
 func main() {
 	// Parse command line flags
-	configPath := "configs/config.yaml"
+	configPath := common.DefaultConfigPath
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}

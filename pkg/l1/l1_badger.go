@@ -12,6 +12,8 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dgraph-io/badger/v4/options"
+
+	"tieredcache/pkg/common"
 )
 
 // L1Cache represents the L1 Badger SSD cache with 32 shards
@@ -86,7 +88,7 @@ func New(cfg *Config) (*L1Cache, error) {
 	}
 
 	if cfg.ShardCount == 0 {
-		cfg.ShardCount = 32 // Default 32 shards
+		cfg.ShardCount = common.DefaultL1ShardCount // Default 32 shards
 	}
 
 	// Calculate max capacity in bytes
@@ -417,7 +419,7 @@ func (c *L1Cache) Close() error {
 	c.cancel()
 
 	// Wait for background workers
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(common.DefaultCloseWaitTime)
 
 	// Close all shards
 	var closeErrors []error

@@ -94,11 +94,11 @@ func New(cfg *Config) (*L0Cache, error) {
 	}
 
 	if cfg.ShardCount == 0 {
-		cfg.ShardCount = 64 // Default
+		cfg.ShardCount = common.DefaultL0ShardCount // Default
 	}
 
 	if cfg.WeightedUnit == 0 {
-		cfg.WeightedUnit = 4096 // Default 4KB
+		cfg.WeightedUnit = uint32(common.WeightedUnitBytes) // Default 4KB
 	}
 
 	// Calculate memory per shard
@@ -106,8 +106,8 @@ func New(cfg *Config) (*L0Cache, error) {
 	perShardMem := maxMemory / uint64(cfg.ShardCount)
 	freqSize := int(perShardMem / uint64(cfg.WeightedUnit) / 4) // Rough estimate
 
-	if freqSize < 1024 {
-		freqSize = 1024
+	if freqSize < common.MinFrequencySize {
+		freqSize = common.MinFrequencySize
 	}
 
 	// Create shards
@@ -380,7 +380,7 @@ func (c *L0Cache) Close() error {
 	}
 
 	// Wait for background goroutines
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(common.DefaultCloseWaitTime)
 
 	return nil
 }

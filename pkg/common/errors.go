@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// WeightedUnit is the standard weight unit (4KB)
-const WeightedUnit = 4096
-
 // Tier represents the storage tier
 type Tier int
 
@@ -339,7 +336,7 @@ type CacheEntry struct {
 func NewCacheEntry(key string, value []byte, ttl time.Duration) *CacheEntry {
 	now := time.Now()
 	size := len(value)
-	weight := (size + WeightedUnit - 1) / WeightedUnit
+	weight := (size + WeightedUnitBytes - 1) / WeightedUnitBytes
 
 	return &CacheEntry{
 		Key:         key,
