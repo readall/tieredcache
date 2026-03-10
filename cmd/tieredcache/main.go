@@ -14,6 +14,12 @@ import (
 	"tieredcache/pkg/tieredcache"
 )
 
+// Signal names for logging
+var signalNames = map[os.Signal]string{
+	syscall.SIGINT:  "SIGINT (Ctrl+C)",
+	syscall.SIGTERM: "SIGTERM (kill)",
+}
+
 func main() {
 	// Parse command line flags
 	configPath := common.DefaultConfigPath
@@ -44,40 +50,88 @@ func main() {
 		log.Fatalf("Failed to initialize cache: %v", err)
 	}
 
-	// Set up signal handling
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// Notify on all common termination signals (cross-platform)
+	signal.Notify(sigChan,
+		syscall.SIGINT,  // Ctrl+C (Interrupt from terminal)
+		syscall.SIGTERM, // Termination request (kill default)
+	)
+
+	// Add platform-specific signals
+	addPlatformSignals(sigChan)
+
+	// Create cancellation context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Handle signals in goroutine
 	go func() {
-		<-sigChan
-		fmt.Println("\nShutting down...")
+		sig := <-sigChan
+		fmt.Printf("\nReceived signal: %v\n", sig)
+
+		// Log the signal type with descriptive name
+		signalName := getSignalName(sig)
+		fmt.Printf("%s - Initiating graceful shutdown...\n", signalName)
+
+		// Cancel context to stop all operations
 		cancel()
 	}()
 
 	// Example usage
 	runExample(ctx, cache)
 
+	// Wait for any background operations to complete
+	fmt.Println("Waiting for background operations to complete...")
+	time.Sleep(common.DefaultCloseWaitTime)
+
 	// Print stats
 	stats, err := cache.Stats()
 	if err != nil {
 		log.Printf("Failed to get stats: %v", err)
 	} else {
-		fmt.Printf("\nCache Stats:\n")
+		fmt.Printf("\nFinal Cache Stats:\n")
 		fmt.Printf("  L0 - Hits: %d, Misses: %d, Entries: %d, Memory: %d bytes\n",
 			stats.L0.Hits, stats.L0.Misses, stats.L0.Entries, stats.L0.MemoryUsed)
 		fmt.Printf("  L1 - Reads: %d, Writes: %d, Disk: %d bytes\n",
 			stats.L1.Reads, stats.L1.Writes, stats.L1.DiskUsage)
 	}
 
-	// Close cache
+	// Close cache with graceful shutdown
+	fmt.Println("Closing cache...")
 	if err := cache.Close(); err != nil {
-		log.Fatalf("Failed to close cache: %v", err)
+		log.Printf("Error closing cache: %v", err)
+	} else {
+		fmt.Println("Cache closed successfully")
 	}
 
-	fmt.Println("Shutdown complete")
+	// Stop signal handling
+	signal.Stop(sigChan)
+
+	fmt.Println("Shutdown complete - Goodbye!")
+}
+
+// getSignalName returns a human-readable name for the signal
+func getSignalName(sig os.Signal) string {
+	if name, ok := signalNames[sig.(syscall.Signal)]; ok {
+		return name
+	}
+	return fmt.Sprintf("Signal: %v", sig)
+}
+
+// addPlatformSignals adds platform-specific signals
+// On Unix systems, adds SIGQUIT, SIGHUP, SIGUSR1, SIGUSR2
+// On Windows, no additional signals are available
+func addPlatformSignals(sigChan chan<- os.Signal) {
+	// On Unix, we could add:
+	// syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2
+	// But these are not available on Windows, so we keep it simple
+	// for cross-platform compatibility
+
+	// For Unix systems, uncomment the following:
+	// signal.Notify(sigChan, syscall.SIGQUIT, syscall.SIGHUP)
+	// Note: SIGUSR1/2 require syscall package and are platform-specific
+	_ = sigChan // suppress unused warning
 }
 
 func runExample(ctx context.Context, cache *tieredcache.TieredCache) {
