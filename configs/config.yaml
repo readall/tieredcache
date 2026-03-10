@@ -12,6 +12,8 @@ tieredcache:
     snapshot_interval_sec: 300   # Disk snapshot interval
     enable_stats: true
     snapshot_path: ./data/l0_snapshots
+    enable_snapshot: false
+    rebuild_from: "l1" # snapshot/l1/none none=cold and no rebuild
 
   # L1 Badger SSD Cache
   l1:
@@ -79,6 +81,9 @@ tieredcache:
     wal_path: ./data/wal
     max_replay_workers: 4
     verify_on_recovery: true
+    enable_l0_prewarm: true
+    prewarm_batch_size: 1000
+    prewarm_workers: 4
     checkpoint_interval: 10000
     enable_checkpoint: true
     checkpoint_path: ./data/checkpoints

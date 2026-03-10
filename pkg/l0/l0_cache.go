@@ -18,11 +18,12 @@ type L0Cache struct {
 	shardCount uint32
 
 	// Configuration
-	maxMemory    uint64
-	maxPayload   int
-	weightedUnit int
-	snapshotPath string
-	snapshotInt  time.Duration
+	maxMemory      uint64
+	maxPayload     int
+	weightedUnit   int
+	snapshotPath   string
+	snapshotInt    time.Duration
+	enableSnapshot bool
 
 	// Statistics
 	stats Stats
@@ -76,6 +77,7 @@ type Config struct {
 	ShardCount      uint32
 	SnapshotPath    string
 	SnapshotInt     time.Duration
+	EnableSnapshot  bool
 }
 
 // New creates a new L0 cache
@@ -124,15 +126,16 @@ func New(cfg *Config) (*L0Cache, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cache := &L0Cache{
-		shards:       shards,
-		shardCount:   cfg.ShardCount,
-		maxMemory:    maxMemory,
-		maxPayload:   int(cfg.MaxPayloadBytes),
-		weightedUnit: int(cfg.WeightedUnit),
-		snapshotPath: cfg.SnapshotPath,
-		snapshotInt:  cfg.SnapshotInt,
-		ctx:          ctx,
-		cancel:       cancel,
+		shards:         shards,
+		shardCount:     cfg.ShardCount,
+		maxMemory:      maxMemory,
+		maxPayload:     int(cfg.MaxPayloadBytes),
+		weightedUnit:   int(cfg.WeightedUnit),
+		snapshotPath:   cfg.SnapshotPath,
+		snapshotInt:    cfg.SnapshotInt,
+		enableSnapshot: cfg.EnableSnapshot,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	// Start background goroutines
@@ -467,6 +470,10 @@ func (s *shard) entriesLen() int {
 
 // startSnapshotTimer starts the periodic snapshot timer
 func (c *L0Cache) startSnapshotTimer() {
+	if !c.enableSnapshot {
+		return
+	}
+
 	if c.snapshotInt <= 0 {
 		return
 	}

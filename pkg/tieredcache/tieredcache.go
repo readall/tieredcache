@@ -93,6 +93,7 @@ func (c *TieredCache) Initialize() error {
 		ShardCount:      c.cfg.TieredCache.L0.ShardCount,
 		SnapshotPath:    c.cfg.TieredCache.L0.SnapshotPath,
 		SnapshotInt:     time.Duration(c.cfg.TieredCache.L0.SnapshotIntervalSec) * time.Second,
+		EnableSnapshot:  c.cfg.TieredCache.L0.EnableSnapshot,
 	}
 
 	l0Cache, err := l0.New(l0Cfg)
@@ -137,6 +138,36 @@ func (c *TieredCache) Initialize() error {
 		}
 	}
 
+	// Rebuild L0 based on configuration
+	switch c.cfg.TieredCache.L0.RebuildFrom {
+	case common.RebuildFromSnapshot:
+		// Rebuild from snapshot
+		go func() {
+			if err := c.rebuildFromSnapshot(); err != nil {
+				fmt.Printf("warning: L0 snapshot restore failed: %v\n", err)
+			}
+		}()
+	case common.RebuildFromL1:
+		// Rebuild from L1 (in background)
+		go func() {
+			if err := c.preWarmL0(); err != nil {
+				fmt.Printf("warning: L0 rebuild from L1 failed: %v\n", err)
+			}
+		}()
+	case common.RebuildFromNone:
+		// No rebuild - cold start
+		fmt.Println("L0 cold start - no rebuild")
+	default:
+		// Default behavior: rebuild from L1 if pre-warming is enabled
+		if c.cfg.TieredCache.Replay.EnableL0PreWarm {
+			go func() {
+				if err := c.preWarmL0(); err != nil {
+					fmt.Printf("warning: L0 rebuild from L1 failed: %v\n", err)
+				}
+			}()
+		}
+	}
+
 	// Start background workers
 	go c.startTieringWorker()
 
@@ -177,6 +208,117 @@ func (c *TieredCache) performRecovery() error {
 		result.EntriesReplayed, result.Duration)
 
 	return nil
+}
+
+// preWarmL0 pre-warms L0 cache with data from L1 after recovery
+func (c *TieredCache) preWarmL0() error {
+	if c.l0 == nil || c.l1 == nil {
+		return nil
+	}
+
+	fmt.Println("Starting L0 pre-warming from L1...")
+
+	workers := c.cfg.TieredCache.Replay.PreWarmWorkers
+	batchSize := c.cfg.TieredCache.Replay.PreWarmBatchSize
+
+	// Create channels for parallel processing
+	entryChan := make(chan *l1Entry, batchSize)
+	resultChan := make(chan error, workers)
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for entry := range entryChan {
+				// Set in L0 (best effort - may fail if L0 is full)
+				if err := c.l0.Set(c.ctx, entry.key, entry.value, 0); err != nil {
+					resultChan <- err
+				}
+			}
+		}()
+	}
+
+	// Iterate through L1 and send to workers
+	iter := c.l1.NewIterator(c.ctx)
+	defer iter.Close()
+
+	var count int
+	batch := make([]*l1Entry, 0, batchSize)
+
+	for iter.Next() {
+		key := iter.Key()
+		value, err := iter.Value()
+		if err != nil {
+			continue
+		}
+
+		batch = append(batch, &l1Entry{key: key, value: value})
+
+		if len(batch) >= batchSize {
+			// Send batch to workers
+			for _, e := range batch {
+				entryChan <- e
+			}
+			count += len(batch)
+			batch = batch[:0] // Reset batch
+		}
+	}
+
+	// Send remaining entries
+	for _, e := range batch {
+		entryChan <- e
+	}
+	count += len(batch)
+
+	close(entryChan)
+	wg.Wait()
+	close(resultChan)
+
+	// Check for errors
+	var errors []error
+	for err := range resultChan {
+		if err != nil {
+			errors = append(errors, err)
+		}
+	}
+
+	if len(errors) > 0 {
+		fmt.Printf("L0 pre-warming completed with %d errors\n", len(errors))
+	} else {
+		fmt.Printf("L0 pre-warming complete: %d entries loaded\n", count)
+	}
+
+	return nil
+}
+
+// rebuildFromSnapshot rebuilds L0 from snapshot on startup
+func (c *TieredCache) rebuildFromSnapshot() error {
+	if c.l0 == nil {
+		return nil
+	}
+
+	snapshotPath := c.cfg.TieredCache.L0.SnapshotPath
+	if snapshotPath == "" {
+		snapshotPath = "./data/l0_snapshots"
+	}
+
+	fmt.Printf("Restoring L0 from snapshot: %s\n", snapshotPath)
+
+	err := c.l0.Restore(snapshotPath)
+	if err != nil {
+		return fmt.Errorf("failed to restore from snapshot: %w", err)
+	}
+
+	fmt.Println("L0 restored from snapshot successfully")
+	return nil
+}
+
+// l1Entry is a helper struct for pre-warming
+type l1Entry struct {
+	key   string
+	value []byte
 }
 
 // Get retrieves a value from the cache, checking all tiers

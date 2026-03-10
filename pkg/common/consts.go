@@ -23,6 +23,21 @@ const WeightedUnitBytes int = 4096
 const MinFrequencySize int = 1024
 
 // =============================================================================
+// L0 Rebuild Sources
+// =============================================================================
+
+const (
+	// RebuildFromSnapshot rebuilds L0 from snapshot on startup
+	RebuildFromSnapshot string = "snapshot"
+
+	// RebuildFromL1 rebuilds L0 from L1 on startup
+	RebuildFromL1 string = "l1"
+
+	// RebuildFromNone does not rebuild L0 on startup (cold start)
+	RebuildFromNone string = "none"
+)
+
+// =============================================================================
 // Timing Constants
 // =============================================================================
 
@@ -50,6 +65,18 @@ const (
 
 	// WALHeaderSize is the size of the WAL entry header (size prefix)
 	WALHeaderSize int = 8
+)
+
+// =============================================================================
+// Pre-warming Constants
+// =============================================================================
+
+const (
+	// DefaultPreWarmBatchSize is the default batch size for pre-warming
+	DefaultPreWarmBatchSize int = 1000
+
+	// DefaultPreWarmWorkers is the default number of workers for pre-warming
+	DefaultPreWarmWorkers int = 4
 )
 
 // =============================================================================

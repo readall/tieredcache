@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -52,8 +53,14 @@ type L0Config struct {
 	// EvictionPolicy is the eviction algorithm
 	EvictionPolicy string `yaml:"eviction_policy"`
 
+	// EnableSnapshot enables periodic disk snapshots
+	EnableSnapshot bool `yaml:"enable_snapshot"`
+
 	// SnapshotIntervalSec is the interval for disk snapshots
 	SnapshotIntervalSec uint32 `yaml:"snapshot_interval_sec"`
+
+	// RebuildFrom specifies where to rebuild L0 on startup: "snapshot" or "l1"
+	RebuildFrom string `yaml:"rebuild_from"`
 
 	// EnableStats enables statistics collection
 	EnableStats bool `yaml:"enable_stats"`
@@ -262,6 +269,15 @@ type ReplayConfig struct {
 	// VerifyOnRecovery enables data verification during recovery
 	VerifyOnRecovery bool `yaml:"verify_on_recovery"`
 
+	// EnableL0PreWarm enables pre-warming L0 from L1 after recovery
+	EnableL0PreWarm bool `yaml:"enable_l0_prewarm"`
+
+	// PreWarmBatchSize is the batch size for pre-warming
+	PreWarmBatchSize int `yaml:"prewarm_batch_size"`
+
+	// PreWarmWorkers is the number of workers for pre-warming
+	PreWarmWorkers int `yaml:"prewarm_workers"`
+
 	// CheckpointInterval is the number of operations between checkpoints
 	CheckpointInterval int64 `yaml:"checkpoint_interval"`
 
@@ -298,21 +314,29 @@ type LoggingConfig struct {
 
 // DefaultConfig returns a configuration with default values
 func DefaultConfig() *Config {
+	// Get number of CPU cores for default shard counts
+	numCPU := runtime.NumCPU()
+	if numCPU < 4 {
+		numCPU = 4 // Minimum
+	}
+
 	return &Config{
 		TieredCache: TieredCacheConfig{
 			L0: L0Config{
 				MaxMemoryMB:         8192,                             // 8GB
 				MaxPayloadBytes:     32768,                            // 32KB
 				WeightedUnitBytes:   uint32(common.WeightedUnitBytes), // 4KB
-				ShardCount:          common.DefaultL0ShardCount,       // 64 shards
+				ShardCount:          uint32(numCPU * 2),               // 2x CPU cores
 				EvictionPolicy:      "clock_pro",                      // Clock-Pro algorithm
+				EnableSnapshot:      true,                             // Enable snapshot by default
 				SnapshotIntervalSec: 300,                              // 5 minutes
+				RebuildFrom:         common.RebuildFromSnapshot,       // Rebuild from snapshot
 				EnableStats:         true,
 				SnapshotPath:        "./data/l0_snapshots",
 			},
 			L1: L1Config{
-				MaxCapacityTB:  10.0,                       // 10TB
-				ShardCount:     common.DefaultL1ShardCount, // 32 shards
+				MaxCapacityTB:  10.0,           // 10TB
+				ShardCount:     uint32(numCPU), // 1x CPU cores
 				SSDPath:        "./data/l1",
 				ValueLogPath:   "./data/l1_vlog",
 				SyncMode:       "periodic", // Periodic sync
@@ -374,6 +398,9 @@ func DefaultConfig() *Config {
 				WALPath:            "./data/wal",
 				MaxReplayWorkers:   common.DefaultMaxReplayWorkers,
 				VerifyOnRecovery:   true,
+				EnableL0PreWarm:    true,
+				PreWarmBatchSize:   common.DefaultPreWarmBatchSize,
+				PreWarmWorkers:     common.DefaultPreWarmWorkers,
 				CheckpointInterval: common.DefaultCheckpointInterval,
 				EnableCheckpoint:   true,
 				CheckpointPath:     "./data/checkpoints",
