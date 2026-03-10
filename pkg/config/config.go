@@ -339,7 +339,7 @@ func DefaultConfig() *Config {
 				ShardCount:     uint32(numCPU), // 1x CPU cores
 				SSDPath:        "./data/l1",
 				ValueLogPath:   "./data/l1_vlog",
-				SyncMode:       "periodic", // Periodic sync
+				SyncMode:       "immediate", // Changed from periodic - prevents data loss on crash
 				SyncIntervalMs: 1000,       // 1 second
 				Compression:    "zstd",     // ZSTD compression
 				WALEnabled:     true,       // Enable WAL

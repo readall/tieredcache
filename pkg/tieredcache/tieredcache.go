@@ -3,6 +3,7 @@ package tieredcache
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -211,6 +212,7 @@ func (c *TieredCache) performRecovery() error {
 }
 
 // preWarmL0 pre-warms L0 cache with data from L1 after recovery
+// This implementation is memory-bounded to prevent OOM during recovery
 func (c *TieredCache) preWarmL0() error {
 	if c.l0 == nil || c.l1 == nil {
 		return nil
@@ -220,6 +222,11 @@ func (c *TieredCache) preWarmL0() error {
 
 	workers := c.cfg.TieredCache.Replay.PreWarmWorkers
 	batchSize := c.cfg.TieredCache.Replay.PreWarmBatchSize
+
+	// Calculate memory limits for pre-warming
+	// Use 50% of L0 max memory for pre-warming to leave room for new entries
+	maxMemoryForPrewarm := uint64(float64(c.cfg.TieredCache.L0.MaxMemoryMB) * 0.5 * 1024 * 1024)
+	var memStats runtime.MemStats
 
 	// Create channels for parallel processing
 	entryChan := make(chan *l1Entry, batchSize)
@@ -245,16 +252,34 @@ func (c *TieredCache) preWarmL0() error {
 	defer iter.Close()
 
 	var count int
+	var bytesLoaded uint64
 	batch := make([]*l1Entry, 0, batchSize)
 
 	for iter.Next() {
+		// Check memory pressure periodically
+		runtime.ReadMemStats(&memStats)
+
+		// Abort if approaching memory limit
+		if memStats.Alloc > maxMemoryForPrewarm {
+			fmt.Printf("Pre-warming paused: memory usage (%dMB) exceeded limit (%dMB)\n",
+				memStats.Alloc/(1024*1024), maxMemoryForPrewarm/(1024*1024))
+			break
+		}
+
 		key := iter.Key()
 		value, err := iter.Value()
 		if err != nil {
 			continue
 		}
 
+		// Skip entries that would exceed memory limit
+		if bytesLoaded+uint64(len(value)) > maxMemoryForPrewarm {
+			fmt.Printf("Pre-warming complete: reached memory limit (%d entries loaded)\n", count)
+			break
+		}
+
 		batch = append(batch, &l1Entry{key: key, value: value})
+		bytesLoaded += uint64(len(value))
 
 		if len(batch) >= batchSize {
 			// Send batch to workers
@@ -287,7 +312,7 @@ func (c *TieredCache) preWarmL0() error {
 	if len(errors) > 0 {
 		fmt.Printf("L0 pre-warming completed with %d errors\n", len(errors))
 	} else {
-		fmt.Printf("L0 pre-warming complete: %d entries loaded\n", count)
+		fmt.Printf("L0 pre-warming complete: %d entries loaded, %d bytes\n", count, bytesLoaded)
 	}
 
 	return nil
@@ -561,15 +586,23 @@ func (c *TieredCache) performTiering() {
 		return
 	}
 
-	// Move to L1
+	// Move to L1 using two-phase tiering: copy -> verify -> delete
 	for _, entry := range candidates {
+		// Phase 1: Copy to L1
 		if err := c.l1.Set(c.ctx, entry.Key, entry.Value, entry.TTL); err != nil {
 			fmt.Printf("warning: failed to tier to L1: %v\n", err)
 			continue
 		}
 
-		// Remove from L0
-		if err := c.l0.Demote(c.ctx, entry.Key); err != nil {
+		// Phase 2: Verify copy exists in L1 (prevents data loss)
+		if _, err := c.l1.Get(c.ctx, entry.Key); err != nil {
+			fmt.Printf("warning: tiering verification failed for %s: %v\n", entry.Key, err)
+			continue
+		}
+
+		// Phase 3: Delete from L0 (only after successful verification)
+		if err := c.l0.Demote(c.ctx, entry.Key); err != nil && err != common.ErrCodeNotFound {
+			// Log but don't fail - data is safe in L1
 			fmt.Printf("warning: failed to demote from L0: %v\n", err)
 		}
 	}

@@ -47,6 +47,10 @@ type RecoveryManager struct {
 	sequence uint64
 	closed   atomic.Bool
 
+	// Corruption tracking
+	skippedEntries uint64
+	corruptedSize  uint64
+
 	// Checkpointing
 	lastCheckpoint     uint64
 	lastCheckpointTime time.Time
@@ -207,6 +211,8 @@ func (m *RecoveryManager) checkpoint() error {
 // RecoveryResult contains the result of a recovery operation
 type RecoveryResult struct {
 	EntriesReplayed uint64
+	EntriesSkipped  uint64 // Entries skipped due to corruption
+	CorruptedSize   uint64 // Total bytes of corrupted data
 	Duration        time.Duration
 	Errors          []error
 	Success         bool
@@ -285,6 +291,10 @@ EntriesLoop:
 		result.Success = false
 	}
 
+	// Populate corruption tracking
+	result.EntriesSkipped = m.skippedEntries
+	result.CorruptedSize = m.corruptedSize
+
 	result.Duration = time.Since(start)
 
 	// Update sequence to latest
@@ -318,12 +328,58 @@ func (m *RecoveryManager) replayWAL(ctx context.Context, checkpointSeq uint64) (
 		default:
 		}
 
-		entry, err := reader.ReadEntry()
+		// Read size with validation
+		sizeBuf := make([]byte, common.WALHeaderSize)
+		n, err := file.Read(sizeBuf)
 		if err == io.EOF {
 			break
 		}
+		if n < common.WALHeaderSize {
+			// Incomplete header - end of valid WAL
+			break
+		}
+
+		size := binary.BigEndian.Uint64(sizeBuf)
+
+		// Validate size to detect corruption
+		if size > uint64(common.MaxWALEntrySize) {
+			// Corrupted entry size - skip remaining file
+			m.corruptedSize += uint64(common.WALHeaderSize)
+			m.skippedEntries++
+			break
+		}
+
+		// Read entry
+		if cap(reader.buffer) < int(size) {
+			reader.buffer = make([]byte, size)
+		}
+		reader.buffer = reader.buffer[:size]
+
+		n, err = file.Read(reader.buffer)
+		if err == io.EOF {
+			// Partial entry at end of file - truncate
+			break
+		}
 		if err != nil {
-			return entries, fmt.Errorf("failed to read WAL entry: %w", err)
+			// Read error - skip corrupted entry and continue
+			m.corruptedSize += uint64(n) + uint64(common.WALHeaderSize)
+			m.skippedEntries++
+			continue
+		}
+		if n < int(size) {
+			// Incomplete entry - truncate
+			m.corruptedSize += uint64(n) + uint64(common.WALHeaderSize)
+			m.skippedEntries++
+			break
+		}
+
+		// Decode entry
+		entry, err := decodeEntry(reader.buffer)
+		if err != nil {
+			// Decode error - skip corrupted entry and continue
+			m.corruptedSize += uint64(size) + uint64(common.WALHeaderSize)
+			m.skippedEntries++
+			continue
 		}
 
 		// Skip entries before checkpoint
@@ -333,7 +389,10 @@ func (m *RecoveryManager) replayWAL(ctx context.Context, checkpointSeq uint64) (
 
 		// Verify checksum
 		if !verifyChecksum(entry) {
-			return entries, fmt.Errorf("checksum mismatch at sequence %d", entry.Sequence)
+			// Checksum mismatch - skip corrupted entry but continue
+			m.corruptedSize += uint64(size) + uint64(common.WALHeaderSize)
+			m.skippedEntries++
+			continue
 		}
 
 		entries = append(entries, entry)

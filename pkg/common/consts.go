@@ -65,6 +65,9 @@ const (
 
 	// WALHeaderSize is the size of the WAL entry header (size prefix)
 	WALHeaderSize int = 8
+
+	// MaxWALEntrySize is the maximum allowed WAL entry size in bytes
+	MaxWALEntrySize int = 1024 * 1024 // 1MB
 )
 
 // =============================================================================

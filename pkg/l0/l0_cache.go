@@ -493,16 +493,15 @@ func (c *L0Cache) startSnapshotTimer() {
 	}
 }
 
-// snapshot takes a snapshot of the cache
+// snapshot takes an atomic snapshot of the cache
 func (c *L0Cache) snapshot() error {
 	if c.snapshotting.Swap(true) {
 		return nil // Already snapshotting
 	}
 	defer c.snapshotting.Store(false)
 
-	// Implementation would write to disk
-	// For now, just mark it as done
-	return nil
+	// Use atomic snapshot with CRC32 verification
+	return c.WriteSnapshot()
 }
 
 // Restore restores the cache from a snapshot
@@ -511,8 +510,8 @@ func (c *L0Cache) Restore(path string) error {
 		return common.NewInitError("l0", "restore", common.ErrCodeClosed, false)
 	}
 
-	// Implementation would read from disk
-	return nil
+	// Use the atomic snapshot restore with verification
+	return c.RestoreFromSnapshot(path)
 }
 
 // EvictCandidates returns entries that are candidates for eviction
