@@ -258,10 +258,11 @@ func (m *RecoveryManager) Recover(ctx context.Context, applyFunc func(*WALEntry)
 	}
 
 	// Send entries to workers
+EntriesLoop:
 	for _, entry := range entries {
 		select {
 		case <-ctx.Done():
-			break
+			break EntriesLoop
 		case errorChan <- nil:
 		default:
 		}
