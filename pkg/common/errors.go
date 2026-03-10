@@ -51,6 +51,11 @@ func ParseTier(s string) (Tier, error) {
 // ErrCode represents error categories
 type ErrCode string
 
+// Error implements the error interface
+func (e ErrCode) Error() string {
+	return string(e)
+}
+
 const (
 	// Config errors
 	ErrCodeConfigInvalid    ErrCode = "CONFIG_INVALID"
@@ -61,6 +66,7 @@ const (
 	ErrCodeInitFailed  ErrCode = "INIT_FAILED"
 	ErrCodeOpenFailed  ErrCode = "OPEN_FAILED"
 	ErrCodeCloseFailed ErrCode = "CLOSE_FAILED"
+	ErrCodeClosed      ErrCode = "CLOSED"
 
 	// Storage errors
 	ErrCodeNotFound     ErrCode = "NOT_FOUND"
