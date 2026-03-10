@@ -1,6 +1,10 @@
+package multitiercache
 
-require (
-	. multitiercache
+import (
+	"context"
+	"log/slog"
+
+	"github.com/IBM/sarama"
 )
 
 // KafkaTier implements Tier for real-time streaming (sarama async producer).
