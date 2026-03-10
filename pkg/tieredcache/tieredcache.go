@@ -77,11 +77,11 @@ func New(cfg *config.Config) (*TieredCache, error) {
 // Initialize initializes all tiers
 func (c *TieredCache) Initialize() error {
 	if c.closed.Load() {
-		return common.NewInitError("tieredcache", "initialize", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("tieredcache", "initialize", common.ErrCodeClosed, false)
 	}
 
 	if c.initializing.Swap(true) {
-		return common.NewInitError("tieredcache", "initialize", "already initializing", false)
+		return common.NewInitError("tieredcache", "initialize", common.ErrCodeInitFailed, false)
 	}
 	defer c.initializing.Store(false)
 
@@ -92,7 +92,7 @@ func (c *TieredCache) Initialize() error {
 		WeightedUnit:    c.cfg.TieredCache.L0.WeightedUnitBytes,
 		ShardCount:      c.cfg.TieredCache.L0.ShardCount,
 		SnapshotPath:    c.cfg.TieredCache.L0.SnapshotPath,
-		SnapshotInt:     c.cfg.TieredCache.L0.SnapshotIntervalSec,
+		SnapshotInt:     time.Duration(c.cfg.TieredCache.L0.SnapshotIntervalSec) * time.Second,
 	}
 
 	l0Cache, err := l0.New(l0Cfg)
@@ -182,11 +182,11 @@ func (c *TieredCache) performRecovery() error {
 // Get retrieves a value from the cache, checking all tiers
 func (c *TieredCache) Get(ctx context.Context, key string) ([]byte, error) {
 	if !c.initialized.Load() {
-		return nil, common.NewInitError("tieredcache", "get", "cache not initialized", false)
+		return nil, common.NewInitError("tieredcache", "get", common.ErrCodeInitFailed, false)
 	}
 
 	if c.closed.Load() {
-		return nil, common.NewInitError("tieredcache", "get", common.ErrCodeClosed.Error(), false)
+		return nil, common.NewInitError("tieredcache", "get", common.ErrCodeClosed, false)
 	}
 
 	// Try L0 first
@@ -211,9 +211,12 @@ func (c *TieredCache) Get(ctx context.Context, key string) ([]byte, error) {
 
 	// Try L2 (if enabled)
 	if c.l2 != nil {
-		val, err := c.l2.GetSink("default") // Would need proper sink lookup
-		if err == nil {
-			return val, nil
+		sink, ok := c.l2.GetSink("default")
+		if ok {
+			val, err := sink.Read(c.ctx, key)
+			if err == nil {
+				return val, nil
+			}
 		}
 	}
 
@@ -223,11 +226,11 @@ func (c *TieredCache) Get(ctx context.Context, key string) ([]byte, error) {
 // Set stores a value in the cache
 func (c *TieredCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	if !c.initialized.Load() {
-		return common.NewInitError("tieredcache", "set", "cache not initialized", false)
+		return common.NewInitError("tieredcache", "set", common.ErrCodeInitFailed, false)
 	}
 
 	if c.closed.Load() {
-		return common.NewInitError("tieredcache", "set", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("tieredcache", "set", common.ErrCodeClosed, false)
 	}
 
 	// Validate size
@@ -265,11 +268,11 @@ func (c *TieredCache) Set(ctx context.Context, key string, value []byte, ttl tim
 // Delete removes a value from all tiers
 func (c *TieredCache) Delete(ctx context.Context, key string) error {
 	if !c.initialized.Load() {
-		return common.NewInitError("tieredcache", "delete", "cache not initialized", false)
+		return common.NewInitError("tieredcache", "delete", common.ErrCodeInitFailed, false)
 	}
 
 	if c.closed.Load() {
-		return common.NewInitError("tieredcache", "delete", common.ErrCodeClosed.Error(), false)
+		return common.NewInitError("tieredcache", "delete", common.ErrCodeClosed, false)
 	}
 
 	var lastErr error
@@ -305,7 +308,7 @@ func (c *TieredCache) Delete(ctx context.Context, key string) error {
 // Stats returns cache statistics
 func (c *TieredCache) Stats() (CacheStats, error) {
 	if !c.initialized.Load() {
-		return CacheStats{}, common.NewInitError("tieredcache", "stats", "cache not initialized", false)
+		return CacheStats{}, common.NewInitError("tieredcache", "stats", common.ErrCodeInitFailed, false)
 	}
 
 	stats := CacheStats{}
