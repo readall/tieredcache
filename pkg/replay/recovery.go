@@ -375,7 +375,7 @@ func (m *RecoveryManager) findLatestCheckpoint() (uint64, error) {
 
 		if checkpoint.Sequence > latestSeq {
 			latestSeq = checkpoint.Sequence
-			latestFile = file.Name()
+			_ = file.Name() // Store for debugging if needed
 		}
 	}
 

@@ -1,0 +1,94 @@
+# TieredCache Configuration
+# Multi-Tier Data Tiering System
+
+tieredcache:
+  # L0 In-Memory Cache (Otter-style)
+  l0:
+    max_memory_mb: 8192          # 8GB default
+    max_payload_bytes: 32768     # 32KB max
+    weighted_unit_bytes: 4096   # 4KB weighted
+    shard_count: 64              # Lock-free shards
+    eviction_policy: clock_pro   # or lru, lfu
+    snapshot_interval_sec: 300   # Disk snapshot interval
+    enable_stats: true
+    snapshot_path: ./data/l0_snapshots
+
+  # L1 Badger SSD Cache
+  l1:
+    max_capacity_tb: 10          # 10TB max
+    shard_count: 32               # 32 shards
+    ssd_path: /mnt/nvme0         # SSD mount point
+    value_log_path: /mnt/nvme1   # Separate volume recommended
+    sync_mode: periodic           # or immediate, disabled
+    sync_interval_ms: 1000       # Periodic sync interval
+    compression: zstd            # zstd, snappy, none
+    wal_enabled: true            # Enable WAL
+    max_tables_size: 268435456    # 256MB
+    num_goroutines: 8
+
+  # L2 Cold Tier Sinks
+  l2:
+    enabled: true
+    sinks:
+      kafka:
+        enabled: true
+        brokers:
+          - localhost:9092
+        topic: tieredcache-cold
+        batch_size: 100
+        flush_interval_ms: 1000
+        compression: lz4
+        required_acks: "1"
+        retry_backoff_ms: 100
+        max_retries: 3
+
+      minio:
+        enabled: false
+        endpoint: localhost:9000
+        bucket: tieredcache
+        access_key: minioadmin
+        secret_key: minioadmin
+        use_ssl: false
+        prefix: cold/
+        batch_size: 50
+        part_size: 5242880
+
+      postgres:
+        enabled: false
+        host: localhost
+        port: 5432
+        database: tieredcache
+        username: postgres
+        password: ""
+        table: cold_data
+        batch_size: 100
+        pool_size: 10
+        ssl_mode: disable
+
+    # Tiering policies
+    tiering:
+      l0_to_l1_threshold: 0.85   # 85% memory usage
+      l1_to_l2_threshold: 0.90   # 90% disk usage
+      tier_interval_sec: 60       # Check every 60s
+      batch_size: 1000           # Items per batch
+      max_workers: 4
+      async_enabled: true
+
+  # Replay/Recovery
+  replay:
+    wal_path: ./data/wal
+    max_replay_workers: 4
+    verify_on_recovery: true
+    checkpoint_interval: 10000
+    enable_checkpoint: true
+    checkpoint_path: ./data/checkpoints
+    max_replay_time_sec: 300
+
+  # Logging
+  logging:
+    level: info
+    format: json
+    output: stdout
+    file_path: ./logs/tieredcache.log
+    max_size_mb: 100
+    max_backups: 10
