@@ -3,10 +3,14 @@ package multitiercache
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 // MinioTier implements Tier for object archive (batched objects).
@@ -38,3 +42,29 @@ func (m *MinioTier) PutBatch(ctx context.Context, items []TierItem) error {
 	_, err := m.client.PutObject(ctx, m.bucket, objectName, buf, int64(buf.Len()), minio.PutObjectOptions{})
 	return err
 }
+
+// Get retrieves an object from MinIO by key (promotion support).
+// The key is hex-encoded to form the object name.
+func (m *MinioTier) Get(ctx context.Context, key []byte) ([]byte, error) {
+	objectName := "archive/" + hex.EncodeToString(key)
+	obj, err := m.client.GetObject(ctx, m.bucket, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		// Return nil, nil for not found (promotion will skip this tier)
+		return nil, nil
+	}
+	defer obj.Close()
+	return io.ReadAll(obj)
+}
+
+// Delete removes an object from MinIO.
+func (m *MinioTier) Delete(ctx context.Context, key []byte) error {
+	objectName := "archive/" + hex.EncodeToString(key)
+	err := m.client.RemoveObject(ctx, m.bucket, objectName, minio.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("minio delete failed: %w", err)
+	}
+	return nil
+}
+
+// ErrMinioNotFound is returned when object is not found in MinIO.
+var ErrMinioNotFound = errors.New("object not found in MinIO")

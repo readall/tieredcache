@@ -131,10 +131,16 @@ func unpackMetadata(data []byte) (metadata, []byte, error) {
 // ================================================
 
 // Tier is the pluggable L2 cold tier interface (Kafka, MinIO, Postgres, etc.).
+// All methods are optional - implement only what you need for promotion.
 type Tier interface {
 	Name() string
+	// PutBatch writes a batch of items to cold storage.
 	PutBatch(ctx context.Context, items []TierItem) error
-	// Optional: Get and Delete for promotion (implement if needed)
+	// Get retrieves a value from cold storage (optional, for promotion).
+	// Return (nil, nil) if key not found in this tier.
+	Get(ctx context.Context, key []byte) ([]byte, error)
+	// Delete removes from cold storage (optional).
+	Delete(ctx context.Context, key []byte) error
 }
 
 type TierItem struct {

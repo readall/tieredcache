@@ -41,3 +41,14 @@ func (k *KafkaTier) PutBatch(ctx context.Context, items []TierItem) error {
 	}
 	return nil
 }
+
+// Get is not supported for Kafka (append-only log).
+// Returns nil, nil to indicate key not found (promotion will skip this tier).
+func (k *KafkaTier) Get(ctx context.Context, key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+// Delete is not supported for Kafka (append-only log).
+func (k *KafkaTier) Delete(ctx context.Context, key []byte) error {
+	return nil
+}
