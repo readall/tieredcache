@@ -53,7 +53,7 @@ The L1 cache is a Badger-based SSD tier for persistent storage.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `max_capacity_tb` | float64 | 10.0 | Maximum capacity in terabytes |
+| `max_capacity_gb` | float64 | 10240.0 | Maximum capacity in gigabytes (10TB = 10240GB) |
 | `shard_count` | uint32 | CPU | Number of database shards |
 | `ssd_path` | string | "./data/l1" | Primary SSD mount point |
 | `value_log_path` | string | "./data/l1_vlog" | Path for value logs (use separate volume recommended) |
@@ -208,7 +208,7 @@ tieredcache:
     snapshot_path: ./data/l0_snapshots
 
   l1:
-    max_capacity_tb: 10
+    max_capacity_gb: 10240
     shard_count: 32
     ssd_path: /mnt/nvme0
     value_log_path: /mnt/nvme1
