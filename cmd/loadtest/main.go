@@ -625,7 +625,7 @@ func main() {
 		ReadWorkers:    10,
 		MissWorkers:    5,
 		StatsInterval:  5 * time.Second,
-		KeyRange:       10000,
+		KeyRange:       100000,
 		MissPercentage: 30,
 		PayloadSizes:   []int{1, 3, 5, 7, 9, 11, 13, 15, 16},
 	}
