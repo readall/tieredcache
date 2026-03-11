@@ -360,20 +360,17 @@ func (c *L1Cache) Stats() (Stats, error) {
 		return Stats{}, fmt.Errorf("cache is closed")
 	}
 
-	totalHits := uint64(0)
-	totalMisses := uint64(0)
-	totalReads := uint64(0)
-	totalWrites := uint64(0)
-	totalDeletes := uint64(0)
-	totalWeight := 0
+	// Read stats directly from centralized stats (not per-shard)
+	totalHits := atomic.LoadUint64(&c.stats.Hits)
+	totalMisses := atomic.LoadUint64(&c.stats.Misses)
+	totalReads := atomic.LoadUint64(&c.stats.Reads)
+	totalWrites := atomic.LoadUint64(&c.stats.Writes)
+	totalDeletes := atomic.LoadUint64(&c.stats.Deletes)
 
+	// Calculate total weight from shards
+	totalWeight := 0
 	for _, s := range c.shards {
 		s.mu.RLock()
-		totalHits += atomic.LoadUint64(&c.stats.Hits)
-		totalMisses += atomic.LoadUint64(&c.stats.Misses)
-		totalReads += atomic.LoadUint64(&c.stats.Reads)
-		totalWrites += atomic.LoadUint64(&c.stats.Writes)
-		totalDeletes += atomic.LoadUint64(&c.stats.Deletes)
 		totalWeight += s.weight
 		s.mu.RUnlock()
 	}
