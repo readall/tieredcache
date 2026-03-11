@@ -306,7 +306,7 @@ func (c *L0Cache) RestoreFromSnapshot(path string) error {
 		}
 
 		// Restore entry to cache
-		if err := c.Set(nil, entry.Key, entry.Value, entry.TTL); err != nil {
+		if err := c.Set(c.ctx, entry.Key, entry.Value, entry.TTL); err != nil {
 			// Log but continue - partial restore is better than none
 			fmt.Printf("warning: failed to restore entry %s: %v\n", entry.Key, err)
 		}
