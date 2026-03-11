@@ -332,7 +332,16 @@ func (c *TieredCache) rebuildFromSnapshot() error {
 
 	fmt.Printf("Restoring L0 from snapshot: %s\n", snapshotPath)
 
-	err := c.l0.Restore(snapshotPath)
+	// Find the latest snapshot file in the directory
+	latestFile, err := l0.FindLatestSnapshot(snapshotPath)
+	if err != nil {
+		fmt.Printf("No snapshot found to restore: %v\n", err)
+		return nil // Not an error - just no snapshot to restore
+	}
+
+	fmt.Printf("Found latest snapshot: %s\n", latestFile)
+
+	err = c.l0.Restore(latestFile)
 	if err != nil {
 		return fmt.Errorf("failed to restore from snapshot: %w", err)
 	}
