@@ -512,7 +512,7 @@ func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, pa
 	fmt.Printf("  Entries: %d\n", l0Stats.L0.Entries)
 	fmt.Printf("  Memory Used: %d bytes (%.2f MB)\n", l0Stats.L0.MemoryUsed, float64(l0Stats.L0.MemoryUsed)/1024/1024)
 	fmt.Printf("  Memory Limit: %d bytes (%.2f MB)\n", l0Stats.L0.MemoryLimit, float64(l0Stats.L0.MemoryLimit)/1024/1024)
-	fmt.Printf("  Hit Rate: %.2f%%\n", l0Stats.L0.HitRate)
+	fmt.Printf("  Hit Rate: %.2f%%\n", l0Stats.L0.HitRate*100)
 	fmt.Printf("  Hits: %d, Misses: %d\n", l0Stats.L0.Hits, l0Stats.L0.Misses)
 	fmt.Printf("  Sets: %d, Evictions: %d\n", l0Stats.L0.Sets, l0Stats.L0.Evictions)
 	fmt.Printf("\nLoad Test Progress:\n")
@@ -559,7 +559,7 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 		l0Stats.L0.MemoryUsed,
 		float64(l0Stats.L0.MemoryUsed)/1024/1024,
 		float64(l0Stats.L0.MemoryUsed)/float64(l0Stats.L0.MemoryLimit)*100)
-	fmt.Printf("  Hit Rate: %.2f%%\n", l0Stats.L0.HitRate)
+	fmt.Printf("  Hit Rate: %.2f%%\n", l0Stats.L0.HitRate*100)
 	fmt.Printf("  Hits: %d\n", l0Stats.L0.Hits)
 	fmt.Printf("  Misses: %d\n", l0Stats.L0.Misses)
 	fmt.Printf("  Sets: %d\n", l0Stats.L0.Sets)
