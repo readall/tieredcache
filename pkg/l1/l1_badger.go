@@ -562,6 +562,7 @@ func (it *L1Iterator) Next() bool {
 		return it.initShard()
 	}
 
+	it.valid = true
 	return true
 }
 
@@ -577,6 +578,7 @@ func (it *L1Iterator) initShard() bool {
 		shard.mu.RUnlock()
 
 		if it.it.Valid() {
+			it.valid = true
 			return true
 		}
 

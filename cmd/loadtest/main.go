@@ -488,7 +488,7 @@ func runMissWorker(ctx context.Context, cache *tieredcache.TieredCache, stats *L
 }
 
 func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, payloadSizes []int) {
-	l0Stats, _ := cache.Stats()
+	cacheStats, _ := cache.Stats()
 
 	reads := atomic.LoadUint64(&stats.TotalReads)
 	misses := atomic.LoadUint64(&stats.TotalMisses)
@@ -506,15 +506,19 @@ func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, pa
 	writeTPS := float64(writes) / elapsed.Seconds()
 	readTPS := float64(reads) / elapsed.Seconds()
 
-	fmt.Printf("\n=== Periodic Stats (L0) ===\n")
+	fmt.Printf("\n=== Periodic Stats (L0 & L1) ===\n")
 	fmt.Printf("Time: %v | Elapsed: %v\n", time.Now().Format("15:04:05"), elapsed.Round(time.Second))
 	fmt.Printf("L0 Stats:\n")
-	fmt.Printf("  Entries: %d\n", l0Stats.L0.Entries)
-	fmt.Printf("  Memory Used: %d bytes (%.2f MB)\n", l0Stats.L0.MemoryUsed, float64(l0Stats.L0.MemoryUsed)/1024/1024)
-	fmt.Printf("  Memory Limit: %d bytes (%.2f MB)\n", l0Stats.L0.MemoryLimit, float64(l0Stats.L0.MemoryLimit)/1024/1024)
-	fmt.Printf("  Hit Rate: %.2f%%\n", l0Stats.L0.HitRate*100)
-	fmt.Printf("  Hits: %d, Misses: %d\n", l0Stats.L0.Hits, l0Stats.L0.Misses)
-	fmt.Printf("  Sets: %d, Evictions: %d\n", l0Stats.L0.Sets, l0Stats.L0.Evictions)
+	fmt.Printf("  Entries: %d\n", cacheStats.L0.Entries)
+	fmt.Printf("  Memory Used: %d bytes (%.2f MB)\n", cacheStats.L0.MemoryUsed, float64(cacheStats.L0.MemoryUsed)/1024/1024)
+	fmt.Printf("  Memory Limit: %d bytes (%.2f MB)\n", cacheStats.L0.MemoryLimit, float64(cacheStats.L0.MemoryLimit)/1024/1024)
+	fmt.Printf("  Hit Rate: %.2f%%\n", cacheStats.L0.HitRate*100)
+	fmt.Printf("  Hits: %d, Misses: %d\n", cacheStats.L0.Hits, cacheStats.L0.Misses)
+	fmt.Printf("  Sets: %d, Evictions: %d\n", cacheStats.L0.Sets, cacheStats.L0.Evictions)
+	fmt.Printf("L1 Stats:\n")
+	fmt.Printf("  Disk Usage: %d bytes (%.2f MB)\n", cacheStats.L1.DiskUsage, float64(cacheStats.L1.DiskUsage)/1024/1024)
+	fmt.Printf("  Hits: %d, Misses: %d\n", cacheStats.L1.Hits, cacheStats.L1.Misses)
+	fmt.Printf("  Reads: %d, Writes: %d\n", cacheStats.L1.Reads, cacheStats.L1.Writes)
 	fmt.Printf("\nLoad Test Progress:\n")
 	fmt.Printf("  Total Writes: %d (errors: %d)\n", writes, writeErrors)
 	fmt.Printf("  Total Reads: %d (errors: %d)\n", reads, readErrors)
@@ -527,7 +531,7 @@ func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, pa
 }
 
 func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, payloadSizes []int) {
-	l0Stats, _ := cache.Stats()
+	cacheStats, _ := cache.Stats()
 
 	writes := atomic.LoadUint64(&stats.TotalWrites)
 	reads := atomic.LoadUint64(&stats.TotalReads)
@@ -554,17 +558,26 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 	fmt.Printf("========================================\n\n")
 
 	fmt.Printf("--- L0 Cache Statistics ---\n")
-	fmt.Printf("  Entries: %d\n", l0Stats.L0.Entries)
+	fmt.Printf("  Entries: %d\n", cacheStats.L0.Entries)
 	fmt.Printf("  Memory Used: %d bytes (%.2f MB / %.2f%%)\n",
-		l0Stats.L0.MemoryUsed,
-		float64(l0Stats.L0.MemoryUsed)/1024/1024,
-		float64(l0Stats.L0.MemoryUsed)/float64(l0Stats.L0.MemoryLimit)*100)
-	fmt.Printf("  Hit Rate: %.2f%%\n", l0Stats.L0.HitRate*100)
-	fmt.Printf("  Hits: %d\n", l0Stats.L0.Hits)
-	fmt.Printf("  Misses: %d\n", l0Stats.L0.Misses)
-	fmt.Printf("  Sets: %d\n", l0Stats.L0.Sets)
-	fmt.Printf("  Evictions: %d\n", l0Stats.L0.Evictions)
-	fmt.Printf("  Deletes: %d\n\n", l0Stats.L0.Deletes)
+		cacheStats.L0.MemoryUsed,
+		float64(cacheStats.L0.MemoryUsed)/1024/1024,
+		float64(cacheStats.L0.MemoryUsed)/float64(cacheStats.L0.MemoryLimit)*100)
+	fmt.Printf("  Hit Rate: %.2f%%\n", cacheStats.L0.HitRate*100)
+	fmt.Printf("  Hits: %d\n", cacheStats.L0.Hits)
+	fmt.Printf("  Misses: %d\n", cacheStats.L0.Misses)
+	fmt.Printf("  Sets: %d\n", cacheStats.L0.Sets)
+	fmt.Printf("  Evictions: %d\n", cacheStats.L0.Evictions)
+	fmt.Printf("  Deletes: %d\n\n", cacheStats.L0.Deletes)
+
+	fmt.Printf("--- L1 Cache Statistics ---\n")
+	fmt.Printf("  Disk Usage: %d bytes (%.2f MB)\n", cacheStats.L1.DiskUsage, float64(cacheStats.L1.DiskUsage)/1024/1024)
+	fmt.Printf("  Hit Rate: %.2f%%\n", float64(cacheStats.L1.Hits)/float64(cacheStats.L1.Hits+cacheStats.L1.Misses)*100)
+	fmt.Printf("  Hits: %d\n", cacheStats.L1.Hits)
+	fmt.Printf("  Misses: %d\n", cacheStats.L1.Misses)
+	fmt.Printf("  Reads: %d\n", cacheStats.L1.Reads)
+	fmt.Printf("  Writes: %d\n", cacheStats.L1.Writes)
+	fmt.Printf("  Deletes: %d\n\n", cacheStats.L1.Deletes)
 
 	fmt.Printf("--- Load Test Operations ---\n")
 	fmt.Printf("  Total Writes: %d (errors: %d)\n", writes, writeErrors)
