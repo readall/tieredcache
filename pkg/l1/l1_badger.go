@@ -52,16 +52,17 @@ type badgerShard struct {
 
 // Config contains L1 cache configuration
 type Config struct {
-	SSDPath        string
-	ValueLogPath   string
-	MaxCapacityGB  float64
-	ShardCount     uint32
-	SyncMode       string
-	SyncIntervalMs uint32
-	Compression    string
-	MaxTableSize   int64
-	NumGoroutines  int
-	WALEnabled     bool
+	SSDPath          string
+	ValueLogPath     string
+	MaxCapacityGB    float64
+	ShardCount       uint32
+	SyncMode         string
+	SyncIntervalMs   uint32
+	Compression      string
+	MaxTableSize     int64
+	NumGoroutines    int
+	WALEnabled       bool
+	BlockCacheSizeMB uint32
 }
 
 // Stats represents L1 statistics
@@ -165,6 +166,10 @@ func New(cfg *Config) (*L1Cache, error) {
 		}
 		if cfg.NumGoroutines > 0 {
 			opts.NumGoroutines = cfg.NumGoroutines
+		}
+		// Block cache - improve hit ratio by caching more data in memory
+		if cfg.BlockCacheSizeMB > 0 {
+			opts.BlockCacheSize = int64(cfg.BlockCacheSizeMB) * 1024 * 1024
 		}
 
 		db, err := badger.Open(opts)

@@ -105,16 +105,17 @@ func (c *TieredCache) Initialize() error {
 
 	// Initialize L1
 	l1Cfg := &l1.Config{
-		SSDPath:        c.cfg.TieredCache.L1.SSDPath,
-		ValueLogPath:   c.cfg.TieredCache.L1.ValueLogPath,
-		MaxCapacityGB:  c.cfg.TieredCache.L1.MaxCapacityGB,
-		ShardCount:     c.cfg.TieredCache.L1.ShardCount,
-		SyncMode:       c.cfg.TieredCache.L1.SyncMode,
-		SyncIntervalMs: c.cfg.TieredCache.L1.SyncIntervalMs,
-		Compression:    c.cfg.TieredCache.L1.Compression,
-		MaxTableSize:   c.cfg.TieredCache.L1.MaxTablesSize,
-		NumGoroutines:  c.cfg.TieredCache.L1.NumGoroutines,
-		WALEnabled:     c.cfg.TieredCache.L1.WALEnabled,
+		SSDPath:          c.cfg.TieredCache.L1.SSDPath,
+		ValueLogPath:     c.cfg.TieredCache.L1.ValueLogPath,
+		MaxCapacityGB:    c.cfg.TieredCache.L1.MaxCapacityGB,
+		ShardCount:       c.cfg.TieredCache.L1.ShardCount,
+		SyncMode:         c.cfg.TieredCache.L1.SyncMode,
+		SyncIntervalMs:   c.cfg.TieredCache.L1.SyncIntervalMs,
+		Compression:      c.cfg.TieredCache.L1.Compression,
+		MaxTableSize:     c.cfg.TieredCache.L1.MaxTablesSize,
+		NumGoroutines:    c.cfg.TieredCache.L1.NumGoroutines,
+		WALEnabled:       c.cfg.TieredCache.L1.WALEnabled,
+		BlockCacheSizeMB: c.cfg.TieredCache.L1.BlockCacheSizeMB,
 	}
 
 	l1Cache, err := l1.New(l1Cfg)

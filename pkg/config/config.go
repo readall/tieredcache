@@ -98,6 +98,9 @@ type L1Config struct {
 	// MaxTablesSize is the maximum size of table files
 	MaxTablesSize int64 `yaml:"max_tables_size"`
 
+	// BlockCacheSizeMB is the block cache size in MB (0 = use default)
+	BlockCacheSizeMB uint32 `yaml:"block_cache_size_mb"`
+
 	// NumGoroutines is the number of goroutines for compactions
 	NumGoroutines int `yaml:"num_goroutines"`
 }
@@ -340,10 +343,10 @@ func DefaultConfig() *Config {
 				SSDPath:        "./data/l1",
 				ValueLogPath:   "./data/l1_vlog",
 				SyncMode:       "immediate", // Changed from periodic - prevents data loss on crash
-				SyncIntervalMs: 1000,       // 1 second
-				Compression:    "zstd",     // ZSTD compression
-				WALEnabled:     true,       // Enable WAL
-				MaxTablesSize:  256 << 20,  // 256MB
+				SyncIntervalMs: 1000,        // 1 second
+				Compression:    "zstd",      // ZSTD compression
+				WALEnabled:     true,        // Enable WAL
+				MaxTablesSize:  256 << 20,   // 256MB
 				NumGoroutines:  8,
 			},
 			L2: L2Config{
