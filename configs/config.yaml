@@ -27,7 +27,7 @@ tieredcache:
     wal_enabled: true            # Enable WAL
     max_tables_size: 268435456    # 256MB
     num_goroutines: 8
-    block_cache_size_mb: 64     # 1GB block cache for better hit ratio
+    block_cache_size_mb: 256     # 1GB block cache for better hit ratio
 
   # L2 Cold Tier Sinks
   l2:

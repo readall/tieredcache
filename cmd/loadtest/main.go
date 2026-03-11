@@ -165,14 +165,13 @@ type LoadTestStats struct {
 	mu        sync.Mutex
 }
 
-func newLoadTestStats() *LoadTestStats {
+func newLoadTestStats(payloadSizes []int) *LoadTestStats {
 	stats := &LoadTestStats{
 		SizeStats: make(map[int]*SizeStats),
 		startTime: time.Now(),
 	}
 
 	// Initialize size stats for each payload size
-	payloadSizes := []int{1, 3, 5, 7, 9, 11, 13, 15, 16}
 	for _, size := range payloadSizes {
 		stats.SizeStats[size] = newSizeStats()
 	}
@@ -269,10 +268,10 @@ func runLoadTest(cfg *LoadTestConfig) error {
 		cancel()
 	}()
 
-	stats := newLoadTestStats()
+	// Use payload sizes from config
+	payloadSizes := cfg.PayloadSizes
 
-	// Payload sizes: 1KB, 3KB, 5KB, 7KB, 9KB, 11KB, 13KB, 15KB, 16KB (max)
-	payloadSizes := []int{1, 3, 5, 7, 9, 11, 13, 15, 16}
+	stats := newLoadTestStats(payloadSizes)
 
 	fmt.Printf("Starting load test with configuration:\n")
 	fmt.Printf("  Duration: %v\n", cfg.Duration)
@@ -640,7 +639,8 @@ func main() {
 		StatsInterval:  5 * time.Second,
 		KeyRange:       100000,
 		MissPercentage: 30,
-		PayloadSizes:   []int{1, 3, 5, 7, 9, 11, 13, 15, 16},
+		// PayloadSizes:   []int{1, 3, 5, 7, 9, 11, 13, 15, 16},
+		PayloadSizes: []int{2, 4},
 	}
 
 	flag.DurationVar(&cfg.Duration, "duration", cfg.Duration, "Duration of the load test")
