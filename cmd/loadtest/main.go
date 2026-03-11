@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,6 +40,113 @@ type LoadTestConfig struct {
 	MissPercentage int
 }
 
+// LatencyRecorder records latencies for percentile calculation
+type LatencyRecorder struct {
+	mu      sync.Mutex
+	values  []int64
+	maxSize int
+}
+
+// NewLatencyRecorder creates a new latency recorder
+func NewLatencyRecorder(maxSize int) *LatencyRecorder {
+	return &LatencyRecorder{
+		values:  make([]int64, 0, maxSize),
+		maxSize: maxSize,
+	}
+}
+
+func (r *LatencyRecorder) Record(latency int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Keep only last maxSize values for memory efficiency
+	if len(r.values) >= r.maxSize {
+		// Remove oldest 10%
+		removeCount := r.maxSize / 10
+		copy(r.values[:], r.values[removeCount:])
+		r.values = r.values[:len(r.values)-removeCount]
+	}
+	r.values = append(r.values, latency)
+}
+
+func (r *LatencyRecorder) GetPercentiles() (p50, p90, p99 int64, avg int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.values) == 0 {
+		return 0, 0, 0, 0
+	}
+
+	// Create a sorted copy
+	sorted := make([]int64, len(r.values))
+	copy(sorted, r.values)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+
+	n := len(sorted)
+
+	// Calculate percentiles
+	p50Idx := int(float64(n) * 0.50)
+	p90Idx := int(float64(n) * 0.90)
+	p99Idx := int(float64(n) * 0.99)
+
+	if p50Idx >= n {
+		p50Idx = n - 1
+	}
+	if p90Idx >= n {
+		p90Idx = n - 1
+	}
+	if p99Idx >= n {
+		p99Idx = n - 1
+	}
+
+	// Calculate average
+	var total int64
+	for _, v := range sorted {
+		total += v
+	}
+	avg = total / int64(n)
+
+	return sorted[p50Idx], sorted[p90Idx], sorted[p99Idx], avg
+}
+
+// SizeStats holds stats for a specific payload size
+type SizeStats struct {
+	mu           sync.Mutex
+	WriteCount   uint64
+	WriteLatency *LatencyRecorder
+	ReadCount    uint64
+	ReadLatency  *LatencyRecorder
+}
+
+func newSizeStats() *SizeStats {
+	return &SizeStats{
+		WriteLatency: NewLatencyRecorder(10000),
+		ReadLatency:  NewLatencyRecorder(10000),
+	}
+}
+
+func (s *SizeStats) RecordWrite(latency int64) {
+	atomic.AddUint64(&s.WriteCount, 1)
+	s.WriteLatency.Record(latency)
+}
+
+func (s *SizeStats) RecordRead(latency int64) {
+	atomic.AddUint64(&s.ReadCount, 1)
+	s.ReadLatency.Record(latency)
+}
+
+func (s *SizeStats) GetWriteStats() (count uint64, p50, p90, p99, avg int64) {
+	count = atomic.LoadUint64(&s.WriteCount)
+	p50, p90, p99, avg = s.WriteLatency.GetPercentiles()
+	return
+}
+
+func (s *SizeStats) GetReadStats() (count uint64, p50, p90, p99, avg int64) {
+	count = atomic.LoadUint64(&s.ReadCount)
+	p50, p90, p99, avg = s.ReadLatency.GetPercentiles()
+	return
+}
+
 // LoadTestStats holds the load test statistics
 type LoadTestStats struct {
 	// Operation counts
@@ -49,53 +157,35 @@ type LoadTestStats struct {
 	ReadErrors  uint64
 	MissErrors  uint64
 
-	// Latency (in nanoseconds)
-	WriteLatencyMin   uint64
-	WriteLatencyMax   uint64
-	WriteLatencyTotal uint64
-	ReadLatencyMin    uint64
-	ReadLatencyMax    uint64
-	ReadLatencyTotal  uint64
-	MissLatencyMin    uint64
-	MissLatencyMax    uint64
-	MissLatencyTotal  uint64
+	// By payload size
+	SizeStats map[int]*SizeStats
 
-	// By payload size - using sync.Map for atomic updates
-	WriteBySize *sync.Map
-	ReadBySize  *sync.Map
-
-	mu sync.Mutex
+	// Timing
+	startTime time.Time
+	mu        sync.Mutex
 }
 
 func newLoadTestStats() *LoadTestStats {
-	return &LoadTestStats{
-		WriteBySize:     &sync.Map{},
-		ReadBySize:      &sync.Map{},
-		WriteLatencyMin: ^uint64(0),
-		ReadLatencyMin:  ^uint64(0),
-		MissLatencyMin:  ^uint64(0),
+	stats := &LoadTestStats{
+		SizeStats: make(map[int]*SizeStats),
+		startTime: time.Now(),
 	}
+
+	// Initialize size stats for each payload size
+	payloadSizes := []int{1, 3, 5, 7, 9, 11, 13, 15, 16}
+	for _, size := range payloadSizes {
+		stats.SizeStats[size] = newSizeStats()
+	}
+
+	return stats
 }
 
 func (s *LoadTestStats) recordWrite(latency int64, size int) {
 	atomic.AddUint64(&s.TotalWrites, 1)
 
-	// Use sync.Map for atomic updates
-	if val, ok := s.WriteBySize.Load(size); ok {
-		s.WriteBySize.Store(size, val.(uint64)+1)
-	} else {
-		s.WriteBySize.Store(size, uint64(1))
+	if stats, ok := s.SizeStats[size]; ok {
+		stats.RecordWrite(latency)
 	}
-
-	s.mu.Lock()
-	if uint64(latency) < s.WriteLatencyMin {
-		s.WriteLatencyMin = uint64(latency)
-	}
-	if uint64(latency) > s.WriteLatencyMax {
-		s.WriteLatencyMax = uint64(latency)
-	}
-	s.WriteLatencyTotal += uint64(latency)
-	s.mu.Unlock()
 }
 
 func (s *LoadTestStats) recordRead(latency int64, size int, found bool) {
@@ -105,32 +195,16 @@ func (s *LoadTestStats) recordRead(latency int64, size int, found bool) {
 		atomic.AddUint64(&s.TotalMisses, 1)
 	}
 
-	s.mu.Lock()
 	if found {
-		if uint64(latency) < s.ReadLatencyMin {
-			s.ReadLatencyMin = uint64(latency)
-		}
-		if uint64(latency) > s.ReadLatencyMax {
-			s.ReadLatencyMax = uint64(latency)
-		}
-		s.ReadLatencyTotal += uint64(latency)
-
-		// Use sync.Map for atomic updates
-		if val, ok := s.ReadBySize.Load(size); ok {
-			s.ReadBySize.Store(size, val.(uint64)+1)
-		} else {
-			s.ReadBySize.Store(size, uint64(1))
+		if stats, ok := s.SizeStats[size]; ok {
+			stats.RecordRead(latency)
 		}
 	} else {
-		if uint64(latency) < s.MissLatencyMin {
-			s.MissLatencyMin = uint64(latency)
+		// Record miss with size 1 (smallest bucket)
+		if stats, ok := s.SizeStats[1]; ok {
+			stats.RecordRead(latency)
 		}
-		if uint64(latency) > s.MissLatencyMax {
-			s.MissLatencyMax = uint64(latency)
-		}
-		s.MissLatencyTotal += uint64(latency)
 	}
-	s.mu.Unlock()
 }
 
 func (s *LoadTestStats) recordWriteError() {
@@ -143,6 +217,10 @@ func (s *LoadTestStats) recordReadError() {
 
 func (s *LoadTestStats) recordMissError() {
 	atomic.AddUint64(&s.MissErrors, 1)
+}
+
+func (s *LoadTestStats) GetElapsedTime() time.Duration {
+	return time.Since(s.startTime)
 }
 
 // GeneratePayload generates a random payload of the specified size in KB
@@ -424,8 +502,12 @@ func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, pa
 		hitRate = float64(reads) / float64(reads+misses) * 100
 	}
 
+	elapsed := stats.GetElapsedTime()
+	writeTPS := float64(writes) / elapsed.Seconds()
+	readTPS := float64(reads) / elapsed.Seconds()
+
 	fmt.Printf("\n=== Periodic Stats (L0) ===\n")
-	fmt.Printf("Time: %v\n", time.Now().Format("15:04:05"))
+	fmt.Printf("Time: %v | Elapsed: %v\n", time.Now().Format("15:04:05"), elapsed.Round(time.Second))
 	fmt.Printf("L0 Stats:\n")
 	fmt.Printf("  Entries: %d\n", l0Stats.L0.Entries)
 	fmt.Printf("  Memory Used: %d bytes (%.2f MB)\n", l0Stats.L0.MemoryUsed, float64(l0Stats.L0.MemoryUsed)/1024/1024)
@@ -438,7 +520,10 @@ func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, pa
 	fmt.Printf("  Total Reads: %d (errors: %d)\n", reads, readErrors)
 	fmt.Printf("  Total Misses: %d\n", misses)
 	fmt.Printf("  Total Ops: %d\n", totalOps)
-	fmt.Printf("  Hit Rate: %.2f%%\n\n", hitRate)
+	fmt.Printf("  Hit Rate: %.2f%%\n", hitRate)
+	fmt.Printf("\nThroughput:\n")
+	fmt.Printf("  Write TPS: %.2f\n", writeTPS)
+	fmt.Printf("  Read TPS: %.2f\n\n", readTPS)
 }
 
 func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, payloadSizes []int) {
@@ -451,6 +536,7 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 	readErrors := atomic.LoadUint64(&stats.ReadErrors)
 
 	totalOps := writes + reads + misses
+	elapsed := stats.GetElapsedTime()
 
 	// Calculate hit rate
 	hitRate := float64(0)
@@ -458,28 +544,9 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 		hitRate = float64(reads) / float64(reads+misses) * 100
 	}
 
-	// Calculate average latencies
-	writeAvgLatency := uint64(0)
-	readAvgLatency := uint64(0)
-	missAvgLatency := uint64(0)
-
-	if writes > 0 {
-		stats.mu.Lock()
-		writeAvgLatency = stats.WriteLatencyTotal / writes
-		stats.mu.Unlock()
-	}
-
-	if reads > 0 {
-		stats.mu.Lock()
-		readAvgLatency = stats.ReadLatencyTotal / reads
-		stats.mu.Unlock()
-	}
-
-	if misses > 0 {
-		stats.mu.Lock()
-		missAvgLatency = stats.MissLatencyTotal / misses
-		stats.mu.Unlock()
-	}
+	// Calculate overall TPS
+	writeTPS := float64(writes) / elapsed.Seconds()
+	readTPS := float64(reads) / elapsed.Seconds()
 
 	fmt.Printf("\n")
 	fmt.Printf("========================================\n")
@@ -503,44 +570,46 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 	fmt.Printf("  Total Writes: %d (errors: %d)\n", writes, writeErrors)
 	fmt.Printf("  Total Reads: %d (errors: %d)\n", reads, readErrors)
 	fmt.Printf("  Total Misses: %d\n", misses)
-	fmt.Printf("  Total Operations: %d\n\n", totalOps)
+	fmt.Printf("  Total Operations: %d\n", totalOps)
+	fmt.Printf("  Elapsed Time: %v\n\n", elapsed.Round(time.Millisecond))
 
 	fmt.Printf("--- Hit Rate ---\n")
 	fmt.Printf("  Read Hit Rate: %.2f%%\n\n", hitRate)
 
-	fmt.Printf("--- Write Latency (ns) ---\n")
-	fmt.Printf("  Min: %d\n", stats.WriteLatencyMin)
-	fmt.Printf("  Avg: %d\n", writeAvgLatency)
-	fmt.Printf("  Max: %d\n\n", stats.WriteLatencyMax)
-
-	fmt.Printf("--- Read Latency (ns) ---\n")
-	fmt.Printf("  Min: %d\n", stats.ReadLatencyMin)
-	fmt.Printf("  Avg: %d\n", readAvgLatency)
-	fmt.Printf("  Max: %d\n\n", stats.ReadLatencyMax)
-
-	fmt.Printf("--- Miss Latency (ns) ---\n")
-	fmt.Printf("  Min: %d\n", stats.MissLatencyMin)
-	fmt.Printf("  Avg: %d\n", missAvgLatency)
-	fmt.Printf("  Max: %d\n\n", stats.MissLatencyMax)
+	fmt.Printf("--- Overall Throughput ---\n")
+	fmt.Printf("  Write TPS: %.2f\n", writeTPS)
+	fmt.Printf("  Read TPS: %.2f\n\n", readTPS)
 
 	// Print breakdown by payload size
-	fmt.Printf("--- Writes by Payload Size ---\n")
+	fmt.Printf("--- Write Latency & TPS by Payload Size ---\n")
+	fmt.Printf("%-8s | %-10s | %-12s | %-12s | %-12s | %-12s | %-10s\n",
+		"Size", "Count", "P50 (ns)", "P90 (ns)", "P99 (ns)", "Avg (ns)", "TPS")
+	fmt.Printf("%-8s-+-%-10s-+-%-12s-+-%-12s-+-%-12s-+-%-12s-+-%-10s\n",
+		"--------", "----------", "------------", "------------", "------------", "------------", "----------")
 	for _, size := range payloadSizes {
-		if val, ok := stats.WriteBySize.Load(size); ok {
-			count := val.(uint64)
+		if sizeStats, ok := stats.SizeStats[size]; ok {
+			count, p50, p90, p99, avg := sizeStats.GetWriteStats()
 			if count > 0 {
-				fmt.Printf("  %d KB: %d writes\n", size, count)
+				tps := float64(count) / elapsed.Seconds()
+				fmt.Printf("%-8d | %-10d | %-12d | %-12d | %-12d | %-12d | %-10.2f\n",
+					size, count, p50, p90, p99, avg, tps)
 			}
 		}
 	}
 	fmt.Println()
 
-	fmt.Printf("--- Reads by Payload Size ---\n")
+	fmt.Printf("--- Read Latency & TPS by Payload Size ---\n")
+	fmt.Printf("%-8s | %-10s | %-12s | %-12s | %-12s | %-12s | %-10s\n",
+		"Size", "Count", "P50 (ns)", "P90 (ns)", "P99 (ns)", "Avg (ns)", "TPS")
+	fmt.Printf("%-8s-+-%-10s-+-%-12s-+-%-12s-+-%-12s-+-%-12s-+-%-10s\n",
+		"--------", "----------", "------------", "------------", "------------", "------------", "----------")
 	for _, size := range payloadSizes {
-		if val, ok := stats.ReadBySize.Load(size); ok {
-			count := val.(uint64)
+		if sizeStats, ok := stats.SizeStats[size]; ok {
+			count, p50, p90, p99, avg := sizeStats.GetReadStats()
 			if count > 0 {
-				fmt.Printf("  %d KB: %d reads\n", size, count)
+				tps := float64(count) / elapsed.Seconds()
+				fmt.Printf("%-8d | %-10d | %-12d | %-12d | %-12d | %-12d | %-10.2f\n",
+					size, count, p50, p90, p99, avg, tps)
 			}
 		}
 	}
