@@ -168,9 +168,13 @@ func New(cfg *Config) (*L1Cache, error) {
 			opts.NumGoroutines = cfg.NumGoroutines
 		}
 		// Block cache - improve hit ratio by caching more data in memory
-		if cfg.BlockCacheSizeMB > 0 {
-			opts.BlockCacheSize = int64(cfg.BlockCacheSizeMB) * 1024 * 1024
+		// Default to 2GB if not specified
+		blockCacheMB := cfg.BlockCacheSizeMB
+		if blockCacheMB == 0 {
+			blockCacheMB = 2048 // Default 2GB
 		}
+		opts.BlockCacheSize = int64(blockCacheMB) * 1024 * 1024
+		fmt.Printf("L1: Block cache size set to %d MB\n", blockCacheMB)
 
 		db, err := badger.Open(opts)
 		if err != nil {
