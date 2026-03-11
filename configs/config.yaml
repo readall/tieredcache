@@ -21,7 +21,7 @@ tieredcache:
     shard_count: 12               # 32 shards
     ssd_path: ./data         # SSD mount point
     value_log_path: ./datalog   # Separate volume recommended
-    sync_mode: periodic           # or immediate, disabled
+    sync_mode: immediate           # periodic or immediate, disabled
     sync_interval_ms: 1000       # Periodic sync interval
     compression: zstd            # zstd, snappy, none
     wal_enabled: true            # Enable WAL

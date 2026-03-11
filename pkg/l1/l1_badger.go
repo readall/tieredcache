@@ -28,6 +28,7 @@ type L1Cache struct {
 	syncMode     string
 	syncInterval time.Duration
 	compression  string
+	walEnabled   bool
 
 	// Statistics
 	stats Stats
@@ -60,6 +61,7 @@ type Config struct {
 	Compression    string
 	MaxTableSize   int64
 	NumGoroutines  int
+	WALEnabled     bool
 }
 
 // Stats represents L1 statistics
@@ -191,6 +193,7 @@ func New(cfg *Config) (*L1Cache, error) {
 		syncMode:     syncMode,
 		syncInterval: syncInterval,
 		compression:  cfg.Compression,
+		walEnabled:   cfg.WALEnabled,
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -443,6 +446,17 @@ func (c *L1Cache) getShard(key string) *badgerShard {
 	h := fnv.New32a()
 	h.Write([]byte(key))
 	return c.shards[h.Sum32()%c.shardCount]
+}
+
+// ShouldUseWAL returns whether the application-level WAL should be used.
+// When sync_mode is "immediate", data is already synced to disk immediately,
+// making the separate application WAL redundant.
+func (c *L1Cache) ShouldUseWAL() bool {
+	// If sync_mode is immediate, WAL is redundant since data is already durable
+	if c.syncMode == "immediate" {
+		return false
+	}
+	return c.walEnabled
 }
 
 // startSyncWorker starts the periodic sync worker

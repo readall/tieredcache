@@ -114,6 +114,7 @@ func (c *TieredCache) Initialize() error {
 		Compression:    c.cfg.TieredCache.L1.Compression,
 		MaxTableSize:   c.cfg.TieredCache.L1.MaxTablesSize,
 		NumGoroutines:  c.cfg.TieredCache.L1.NumGoroutines,
+		WALEnabled:     c.cfg.TieredCache.L1.WALEnabled,
 	}
 
 	l1Cache, err := l1.New(l1Cfg)
@@ -415,8 +416,17 @@ func (c *TieredCache) Set(ctx context.Context, key string, value []byte, ttl tim
 		}
 	}
 
-	// Write to WAL for recovery
-	if c.recovery != nil {
+	// Write to L1 (SSD cache) for persistence
+	if c.l1 != nil {
+		if err := c.l1.Set(ctx, key, value, ttl); err != nil {
+			// Log but don't fail - L0 write succeeded
+			fmt.Printf("warning: L1 write failed: %v\n", err)
+		}
+	}
+
+	// Write to WAL for recovery (only if WAL is needed based on sync_mode)
+	// When sync_mode is "immediate", WAL is redundant since data is already durable
+	if c.recovery != nil && c.l1 != nil && c.l1.ShouldUseWAL() {
 		entry := &replay.WALEntry{
 			Operation: replay.OpSet,
 			Key:       key,
@@ -457,8 +467,9 @@ func (c *TieredCache) Delete(ctx context.Context, key string) error {
 		}
 	}
 
-	// Write to WAL
-	if c.recovery != nil {
+	// Write to WAL (only if WAL is needed based on sync_mode)
+	// When sync_mode is "immediate", WAL is redundant since data is already durable
+	if c.recovery != nil && c.l1 != nil && c.l1.ShouldUseWAL() {
 		entry := &replay.WALEntry{
 			Operation: replay.OpDelete,
 			Key:       key,
