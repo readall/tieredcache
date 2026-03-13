@@ -23,9 +23,10 @@ type LoadTestConfig struct {
 	Duration time.Duration
 
 	// Workers
-	WriteWorkers int
-	ReadWorkers  int
-	MissWorkers  int
+	WriteWorkers  int
+	ReadWorkers   int
+	MissWorkers   int
+	VerifyWorkers int // Number of verification workers (Set -> L1.Get)
 
 	// Payload sizes (in KB) - 1KB, 3KB, 5KB, 7KB, 9KB, 11KB, 13KB, 15KB, 16KB (max)
 	PayloadSizes []int
@@ -157,6 +158,10 @@ type LoadTestStats struct {
 	ReadErrors  uint64
 	MissErrors  uint64
 
+	// L1 Verification stats (Set then verify with L1.Get)
+	VerificationSuccess uint64
+	VerificationFailure uint64
+
 	// By payload size
 	SizeStats map[int]*SizeStats
 
@@ -278,6 +283,7 @@ func runLoadTest(cfg *LoadTestConfig) error {
 	fmt.Printf("  Write Workers: %d\n", cfg.WriteWorkers)
 	fmt.Printf("  Read Workers: %d\n", cfg.ReadWorkers)
 	fmt.Printf("  Miss Workers: %d\n", cfg.MissWorkers)
+	fmt.Printf("  Verify Workers: %d (Set -> L1.Get)\n", cfg.VerifyWorkers)
 	fmt.Printf("  Payload Sizes: %v KB\n", payloadSizes)
 	fmt.Printf("  Stats Interval: %v\n", cfg.StatsInterval)
 	fmt.Printf("  Key Range: %d\n", cfg.KeyRange)
@@ -329,6 +335,15 @@ func runLoadTest(cfg *LoadTestConfig) error {
 		go func(workerID int) {
 			defer wg.Done()
 			runMissWorker(ctx, cache, stats, workerID, payloadSizes, cfg.KeyRange, cfg.MissPercentage)
+		}(i)
+	}
+
+	// Start verification workers (tests Set -> L1.Get)
+	for i := 0; i < cfg.VerifyWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			runVerifyWorker(ctx, cache, stats, workerID, payloadSizes, cfg.KeyRange)
 		}(i)
 	}
 
@@ -486,6 +501,85 @@ func runMissWorker(ctx context.Context, cache *tieredcache.TieredCache, stats *L
 	}
 }
 
+// runVerifyWorker tests Set followed by L1.Get() verification
+// This verifies that data written to the cache is properly persisted to L1 (SSD)
+func runVerifyWorker(ctx context.Context, cache *tieredcache.TieredCache, stats *LoadTestStats, workerID int, payloadSizes []int, keyRange int) {
+	r := rand.New(rand.NewSource(int64(workerID+3000) + time.Now().UnixNano()))
+
+	ticker := time.NewTicker(10 * time.Millisecond) // Slower than regular workers
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Select random payload size
+			size := payloadSizes[r.Intn(len(payloadSizes))]
+			payload := GeneratePayload(size)
+
+			// Generate unique key for verification test
+			key := fmt.Sprintf("verify_key_%08d_%d", r.Intn(keyRange), workerID)
+
+			// Step 1: Set the key in the cache
+			setStart := time.Now()
+			if err := cache.Set(ctx, key, payload, 0); err != nil {
+				atomic.AddUint64(&stats.VerificationFailure, 1)
+				fmt.Printf("VerifyWorker %d: Set failed for %s: %v\n", workerID, key, err)
+				continue
+			}
+			setLatency := time.Since(setStart).Nanoseconds()
+
+			// Small delay to ensure write completes
+			time.Sleep(1 * time.Millisecond)
+
+			// Step 2: Verify by reading directly from L1 (SSD tier)
+			l1GetStart := time.Now()
+			l1Value, err := cache.GetFromL1(ctx, key)
+			l1GetLatency := time.Since(l1GetStart).Nanoseconds()
+
+			if err != nil {
+				atomic.AddUint64(&stats.VerificationFailure, 1)
+				fmt.Printf("VerifyWorker %d: L1.Get failed for %s: %v\n", workerID, key, err)
+				continue
+			}
+
+			// Step 3: Verify data integrity
+			if len(l1Value) != len(payload) {
+				atomic.AddUint64(&stats.VerificationFailure, 1)
+				fmt.Printf("VerifyWorker %d: Size mismatch for %s - expected %d, got %d\n",
+					workerID, key, len(payload), len(l1Value))
+				continue
+			}
+
+			// Compare byte-by-byte
+			matches := true
+			for i := 0; i < len(payload); i++ {
+				if l1Value[i] != payload[i] {
+					matches = false
+					break
+				}
+			}
+
+			if !matches {
+				atomic.AddUint64(&stats.VerificationFailure, 1)
+				fmt.Printf("VerifyWorker %d: Data mismatch for %s\n", workerID, key)
+				continue
+			}
+
+			// Verification successful
+			atomic.AddUint64(&stats.VerificationSuccess, 1)
+
+			// Log occasionally
+			if atomic.LoadUint64(&stats.VerificationSuccess)%100 == 0 {
+				fmt.Printf("VerifyWorker %d: Verified %d keys - Set: %.2fus, L1.Get: %.2fus\n",
+					workerID, stats.VerificationSuccess,
+					float64(setLatency)/1000, float64(l1GetLatency)/1000)
+			}
+		}
+	}
+}
+
 func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, payloadSizes []int) {
 	cacheStats, _ := cache.Stats()
 
@@ -585,6 +679,20 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 	fmt.Printf("  Total Operations: %d\n", totalOps)
 	fmt.Printf("  Elapsed Time: %v\n\n", elapsed.Round(time.Millisecond))
 
+	// Verification stats
+	verifies := atomic.LoadUint64(&stats.VerificationSuccess)
+	verifyFailures := atomic.LoadUint64(&stats.VerificationFailure)
+	if verifies > 0 || verifyFailures > 0 {
+		verifyRate := float64(0)
+		if verifies+verifyFailures > 0 {
+			verifyRate = float64(verifies) / float64(verifies+verifyFailures) * 100
+		}
+		fmt.Printf("--- L1 Verification (Set -> L1.Get) ---\n")
+		fmt.Printf("  Successful Verifications: %d\n", verifies)
+		fmt.Printf("  Failed Verifications: %d\n", verifyFailures)
+		fmt.Printf("  Verification Rate: %.2f%%\n\n", verifyRate)
+	}
+
 	fmt.Printf("--- Hit Rate ---\n")
 	fmt.Printf("  Read Hit Rate: %.2f%%\n\n", hitRate)
 
@@ -636,6 +744,7 @@ func main() {
 		WriteWorkers:   10,
 		ReadWorkers:    10,
 		MissWorkers:    5,
+		VerifyWorkers:  2, // Verification workers (Set -> L1.Get)
 		StatsInterval:  5 * time.Second,
 		KeyRange:       100000,
 		MissPercentage: 30,
@@ -647,6 +756,7 @@ func main() {
 	flag.IntVar(&cfg.WriteWorkers, "write-workers", cfg.WriteWorkers, "Number of write workers")
 	flag.IntVar(&cfg.ReadWorkers, "read-workers", cfg.ReadWorkers, "Number of read workers")
 	flag.IntVar(&cfg.MissWorkers, "miss-workers", cfg.MissWorkers, "Number of miss test workers")
+	flag.IntVar(&cfg.VerifyWorkers, "verify-workers", cfg.VerifyWorkers, "Number of verification workers (Set -> L1.Get)")
 	flag.DurationVar(&cfg.StatsInterval, "stats-interval", cfg.StatsInterval, "Interval for periodic stats")
 	flag.IntVar(&cfg.KeyRange, "key-range", cfg.KeyRange, "Range of keys to use")
 	flag.IntVar(&cfg.MissPercentage, "miss-percentage", cfg.MissPercentage, "Percentage of misses to generate")
