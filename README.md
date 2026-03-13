@@ -41,8 +41,16 @@ go run cmd/tieredcache/main.go [config-path]
 go run cmd/loadtest/main.go
 ```
 
+Or use the compiled binary:
+```bash
+./bin/loadtest.exe
+```
+
 ### Load Test Options
 ```bash
+# Configuration file (default: configs/config.yaml)
+-config=path/to/config.yaml
+
 # Duration and workers
 -duration=60s -write-workers=10 -read-workers=10 -miss-workers=5
 
@@ -50,11 +58,33 @@ go run cmd/loadtest/main.go
 -verify-workers=2          # Test: Set -> L1.Get
 -l1-direct-workers=2       # Test: L1.Set -> Get
 
-# Payload sizes
--payload-sizes=2,4         # KB sizes to test
+# Stats reporting interval
+-stats-interval=5s          # How often to print periodic stats
 
-# Key range
+# Key range and miss percentage
 -key-range=100000          # Number of unique keys
+-miss-percentage=30        # Percentage of cache misses to generate
+```
+
+All available options:
+```
+  -alsologtostderr           log to standard error as well as files
+  -config string              Path to the configuration file (default "configs/config.yaml")
+  -duration duration          Duration of the load test (default 30s)
+  -key-range int              Range of keys to use (default 100000)
+  -l1-direct-workers int      Number of L1 direct workers (L1.Set -> Get) (default 2)
+  -log_backtrace_at value     when logging hits line file:N, emit a stack trace
+  -log_dir string             If non-empty, write log files in this directory
+  -logtostderr                log to standard error instead of files
+  -miss-percentage int         Percentage of misses to generate (default 30)
+  -miss-workers int           Number of miss test workers (default 5)
+  -read-workers int           Number of read workers (default 10)
+  -stats-interval duration     Interval for periodic stats (default 5s)
+  -stderrthreshold value      logs at or above this threshold go to stderr
+  -v value                     log level for V logs
+  -verify-workers int         Number of verification workers (Set -> L1.Get) (default 2)
+  -vmodule value              comma-separated list of pattern=N settings for file-filtered logging
+  -write-workers int          Number of write workers (default 10)
 ```
 
 ---

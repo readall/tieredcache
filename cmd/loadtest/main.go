@@ -249,11 +249,11 @@ func GenerateKey(index int) string {
 	return fmt.Sprintf("loadtest_key_%08d", index)
 }
 
-func runLoadTest(cfg *LoadTestConfig) error {
+func runLoadTest(cfg *LoadTestConfig, configPath string) error {
 	// Initialize the tiered cache
-	tieredCfg, err := config.Load("configs/config.yaml")
+	tieredCfg, err := config.Load(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
 
 	cache, err := tieredcache.New(tieredCfg)
@@ -847,6 +847,8 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 }
 
 func main() {
+	var configPath string
+
 	cfg := LoadTestConfig{
 		Duration:        30 * time.Second,
 		WriteWorkers:    10,
@@ -861,6 +863,7 @@ func main() {
 		PayloadSizes: []int{2, 4}, // KB sizes for GeneratePayload
 	}
 
+	flag.StringVar(&configPath, "config", "configs/config.yaml", "Path to the configuration file")
 	flag.DurationVar(&cfg.Duration, "duration", cfg.Duration, "Duration of the load test")
 	flag.IntVar(&cfg.WriteWorkers, "write-workers", cfg.WriteWorkers, "Number of write workers")
 	flag.IntVar(&cfg.ReadWorkers, "read-workers", cfg.ReadWorkers, "Number of read workers")
@@ -873,7 +876,7 @@ func main() {
 
 	flag.Parse()
 
-	if err := runLoadTest(&cfg); err != nil {
+	if err := runLoadTest(&cfg, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running load test: %v\n", err)
 		os.Exit(1)
 	}
