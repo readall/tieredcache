@@ -533,8 +533,8 @@ func runVerifyWorker(ctx context.Context, cache *tieredcache.TieredCache, stats 
 			size := payloadSizes[r.Intn(len(payloadSizes))]
 			payload := GeneratePayload(size)
 
-			// Generate unique key for verification test
-			key := fmt.Sprintf("verify_key_%08d_%d", r.Intn(keyRange), workerID)
+			// Generate unique key for verification test (add timestamp to avoid stale data)
+			key := fmt.Sprintf("verify_%d_%08d_%d", time.Now().UnixNano(), r.Intn(keyRange), workerID)
 
 			// Step 1: Set the key in the cache
 			setStart := time.Now()
@@ -612,8 +612,8 @@ func runL1DirectVerifyWorker(ctx context.Context, cache *tieredcache.TieredCache
 			size := payloadSizes[r.Intn(len(payloadSizes))]
 			payload := GeneratePayload(size)
 
-			// Generate unique key for verification test
-			key := fmt.Sprintf("l1direct_verify_%08d_%d", r.Intn(keyRange), workerID)
+			// Generate unique key for verification test (add timestamp to avoid stale data)
+			key := fmt.Sprintf("l1direct_%d_%08d_%d", time.Now().UnixNano(), r.Intn(keyRange), workerID)
 
 			// Step 1: Set the key directly in L1 (SSD tier), bypassing L0
 			l1SetStart := time.Now()
@@ -858,7 +858,7 @@ func main() {
 		KeyRange:        100000,
 		MissPercentage:  30,
 		// PayloadSizes:   []int{1, 3, 5, 7, 9, 11, 13, 15, 16},
-		PayloadSizes: []int{2, 4},
+		PayloadSizes: []int{2, 4}, // KB sizes for GeneratePayload
 	}
 
 	flag.DurationVar(&cfg.Duration, "duration", cfg.Duration, "Duration of the load test")
