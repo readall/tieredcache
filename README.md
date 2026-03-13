@@ -162,7 +162,9 @@ value, err := cache.Get(ctx, key)
 err = cache.Set(ctx, key, value, ttl)
 err = cache.Delete(ctx, key)
 
-// Direct tier access
+// Direct tier access (Only for testing and verification use)
+// Shall not be used in normal operation as it violates the 
+// API guarantee
 value, err = cache.GetFromL1(ctx, key)  // Direct L1 access
 err = cache.SetToL1(ctx, key, value, 0)  // Direct L1 write
 
