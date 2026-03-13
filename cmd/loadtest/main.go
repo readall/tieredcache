@@ -23,10 +23,11 @@ type LoadTestConfig struct {
 	Duration time.Duration
 
 	// Workers
-	WriteWorkers  int
-	ReadWorkers   int
-	MissWorkers   int
-	VerifyWorkers int // Number of verification workers (Set -> L1.Get)
+	WriteWorkers    int // Number of write workers
+	ReadWorkers     int // Number of read workers
+	MissWorkers     int // Number of miss test workers
+	VerifyWorkers   int // Number of verification workers (Set -> L1.Get)
+	L1DirectWorkers int // Number of L1 direct workers (L1.Set -> Get)
 
 	// Payload sizes (in KB) - 1KB, 3KB, 5KB, 7KB, 9KB, 11KB, 13KB, 15KB, 16KB (max)
 	PayloadSizes []int
@@ -162,6 +163,10 @@ type LoadTestStats struct {
 	VerificationSuccess uint64
 	VerificationFailure uint64
 
+	// L1 Direct Verification stats (L1.Set then verify with tieredcache.Get)
+	L1DirectVerifySuccess uint64
+	L1DirectVerifyFailure uint64
+
 	// By payload size
 	SizeStats map[int]*SizeStats
 
@@ -284,6 +289,7 @@ func runLoadTest(cfg *LoadTestConfig) error {
 	fmt.Printf("  Read Workers: %d\n", cfg.ReadWorkers)
 	fmt.Printf("  Miss Workers: %d\n", cfg.MissWorkers)
 	fmt.Printf("  Verify Workers: %d (Set -> L1.Get)\n", cfg.VerifyWorkers)
+	fmt.Printf("  L1 Direct Workers: %d (L1.Set -> Get)\n", cfg.L1DirectWorkers)
 	fmt.Printf("  Payload Sizes: %v KB\n", payloadSizes)
 	fmt.Printf("  Stats Interval: %v\n", cfg.StatsInterval)
 	fmt.Printf("  Key Range: %d\n", cfg.KeyRange)
@@ -344,6 +350,15 @@ func runLoadTest(cfg *LoadTestConfig) error {
 		go func(workerID int) {
 			defer wg.Done()
 			runVerifyWorker(ctx, cache, stats, workerID, payloadSizes, cfg.KeyRange)
+		}(i)
+	}
+
+	// Start L1 direct verification workers (tests L1.Set -> Get)
+	for i := 0; i < cfg.L1DirectWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			runL1DirectVerifyWorker(ctx, cache, stats, workerID, payloadSizes, cfg.KeyRange)
 		}(i)
 	}
 
@@ -580,6 +595,85 @@ func runVerifyWorker(ctx context.Context, cache *tieredcache.TieredCache, stats 
 	}
 }
 
+// runL1DirectVerifyWorker tests L1.Set followed by tieredcache.Get() verification
+// This verifies that data written directly to L1 can be retrieved through the normal Get path
+func runL1DirectVerifyWorker(ctx context.Context, cache *tieredcache.TieredCache, stats *LoadTestStats, workerID int, payloadSizes []int, keyRange int) {
+	r := rand.New(rand.NewSource(int64(workerID+4000) + time.Now().UnixNano()))
+
+	ticker := time.NewTicker(10 * time.Millisecond) // Slower than regular workers
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Select random payload size
+			size := payloadSizes[r.Intn(len(payloadSizes))]
+			payload := GeneratePayload(size)
+
+			// Generate unique key for verification test
+			key := fmt.Sprintf("l1direct_verify_%08d_%d", r.Intn(keyRange), workerID)
+
+			// Step 1: Set the key directly in L1 (SSD tier), bypassing L0
+			l1SetStart := time.Now()
+			if err := cache.SetToL1(ctx, key, payload, 0); err != nil {
+				atomic.AddUint64(&stats.L1DirectVerifyFailure, 1)
+				fmt.Printf("L1DirectVerifyWorker %d: L1.Set failed for %s: %v\n", workerID, key, err)
+				continue
+			}
+			l1SetLatency := time.Since(l1SetStart).Nanoseconds()
+
+			// Small delay to ensure write completes
+			time.Sleep(1 * time.Millisecond)
+
+			// Step 2: Verify by reading through normal Get (which checks L0 first, then L1)
+			getStart := time.Now()
+			value, err := cache.Get(ctx, key)
+			getLatency := time.Since(getStart).Nanoseconds()
+
+			if err != nil {
+				atomic.AddUint64(&stats.L1DirectVerifyFailure, 1)
+				fmt.Printf("L1DirectVerifyWorker %d: Get failed for %s: %v\n", workerID, key, err)
+				continue
+			}
+
+			// Step 3: Verify data integrity
+			if len(value) != len(payload) {
+				atomic.AddUint64(&stats.L1DirectVerifyFailure, 1)
+				fmt.Printf("L1DirectVerifyWorker %d: Size mismatch for %s - expected %d, got %d\n",
+					workerID, key, len(payload), len(value))
+				continue
+			}
+
+			// Compare byte-by-byte
+			matches := true
+			for i := 0; i < len(payload); i++ {
+				if value[i] != payload[i] {
+					matches = false
+					break
+				}
+			}
+
+			if !matches {
+				atomic.AddUint64(&stats.L1DirectVerifyFailure, 1)
+				fmt.Printf("L1DirectVerifyWorker %d: Data mismatch for %s\n", workerID, key)
+				continue
+			}
+
+			// Verification successful
+			atomic.AddUint64(&stats.L1DirectVerifySuccess, 1)
+
+			// Log occasionally
+			if atomic.LoadUint64(&stats.L1DirectVerifySuccess)%100 == 0 {
+				fmt.Printf("L1DirectVerifyWorker %d: Verified %d keys - L1.Set: %.2fus, Get: %.2fus\n",
+					workerID, stats.L1DirectVerifySuccess,
+					float64(l1SetLatency)/1000, float64(getLatency)/1000)
+			}
+		}
+	}
+}
+
 func printPeriodicStats(stats *LoadTestStats, cache *tieredcache.TieredCache, payloadSizes []int) {
 	cacheStats, _ := cache.Stats()
 
@@ -693,6 +787,20 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 		fmt.Printf("  Verification Rate: %.2f%%\n\n", verifyRate)
 	}
 
+	// L1 Direct Verification stats
+	l1DirectVerifies := atomic.LoadUint64(&stats.L1DirectVerifySuccess)
+	l1DirectFailures := atomic.LoadUint64(&stats.L1DirectVerifyFailure)
+	if l1DirectVerifies > 0 || l1DirectFailures > 0 {
+		l1DirectRate := float64(0)
+		if l1DirectVerifies+l1DirectFailures > 0 {
+			l1DirectRate = float64(l1DirectVerifies) / float64(l1DirectVerifies+l1DirectFailures) * 100
+		}
+		fmt.Printf("--- L1 Direct Verification (L1.Set -> Get) ---\n")
+		fmt.Printf("  Successful Verifications: %d\n", l1DirectVerifies)
+		fmt.Printf("  Failed Verifications: %d\n", l1DirectFailures)
+		fmt.Printf("  Verification Rate: %.2f%%\n\n", l1DirectRate)
+	}
+
 	fmt.Printf("--- Hit Rate ---\n")
 	fmt.Printf("  Read Hit Rate: %.2f%%\n\n", hitRate)
 
@@ -740,14 +848,15 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 
 func main() {
 	cfg := LoadTestConfig{
-		Duration:       30 * time.Second,
-		WriteWorkers:   10,
-		ReadWorkers:    10,
-		MissWorkers:    5,
-		VerifyWorkers:  2, // Verification workers (Set -> L1.Get)
-		StatsInterval:  5 * time.Second,
-		KeyRange:       100000,
-		MissPercentage: 30,
+		Duration:        30 * time.Second,
+		WriteWorkers:    10,
+		ReadWorkers:     10,
+		MissWorkers:     5,
+		VerifyWorkers:   2, // Verification workers (Set -> L1.Get)
+		L1DirectWorkers: 2, // L1 direct workers (L1.Set -> Get)
+		StatsInterval:   5 * time.Second,
+		KeyRange:        100000,
+		MissPercentage:  30,
 		// PayloadSizes:   []int{1, 3, 5, 7, 9, 11, 13, 15, 16},
 		PayloadSizes: []int{2, 4},
 	}
@@ -757,6 +866,7 @@ func main() {
 	flag.IntVar(&cfg.ReadWorkers, "read-workers", cfg.ReadWorkers, "Number of read workers")
 	flag.IntVar(&cfg.MissWorkers, "miss-workers", cfg.MissWorkers, "Number of miss test workers")
 	flag.IntVar(&cfg.VerifyWorkers, "verify-workers", cfg.VerifyWorkers, "Number of verification workers (Set -> L1.Get)")
+	flag.IntVar(&cfg.L1DirectWorkers, "l1-direct-workers", cfg.L1DirectWorkers, "Number of L1 direct workers (L1.Set -> Get)")
 	flag.DurationVar(&cfg.StatsInterval, "stats-interval", cfg.StatsInterval, "Interval for periodic stats")
 	flag.IntVar(&cfg.KeyRange, "key-range", cfg.KeyRange, "Range of keys to use")
 	flag.IntVar(&cfg.MissPercentage, "miss-percentage", cfg.MissPercentage, "Percentage of misses to generate")

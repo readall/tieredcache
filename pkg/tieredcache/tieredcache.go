@@ -493,6 +493,24 @@ func (c *TieredCache) Delete(ctx context.Context, key string) error {
 	return lastErr
 }
 
+// SetToL1 sets a value directly in L1 (SSD tier)
+// This bypasses L0 and is useful for testing L1 persistence directly
+func (c *TieredCache) SetToL1(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	if !c.initialized.Load() {
+		return common.NewInitError("tieredcache", "set_to_l1", common.ErrCodeInitFailed, false)
+	}
+
+	if c.closed.Load() {
+		return common.NewInitError("tieredcache", "set_to_l1", common.ErrCodeClosed, false)
+	}
+
+	if c.l1 == nil {
+		return fmt.Errorf("L1 not initialized")
+	}
+
+	return c.l1.Set(ctx, key, value, ttl)
+}
+
 // GetFromL1 retrieves a value directly from L1 (SSD tier)
 // This bypasses L0 and is useful for testing tier persistence
 func (c *TieredCache) GetFromL1(ctx context.Context, key string) ([]byte, error) {
