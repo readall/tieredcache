@@ -10,6 +10,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"tieredcache/pkg/common"
@@ -271,10 +272,10 @@ func runLoadTest(cfg *LoadTestConfig, configPath string) error {
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-sigChan
-		fmt.Println("\nReceived interrupt signal, stopping load test...")
+		sig := <-sigChan
+		fmt.Printf("\nReceived signal %v, stopping load test...\n", sig)
 		cancel()
 	}()
 
@@ -362,10 +363,17 @@ func runLoadTest(cfg *LoadTestConfig, configPath string) error {
 		}(i)
 	}
 
-	// Wait for duration
-	time.Sleep(cfg.Duration)
+	// Wait for either the duration to complete or a signal to stop
+	timer := time.NewTimer(cfg.Duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	// Duration completed
+	case <-ctx.Done():
+		// Received signal
+	}
 
-	// Cancel context to stop workers
+	// Cancel context to stop workers (if not already cancelled)
 	cancel()
 
 	// Wait for all workers to finish
@@ -781,7 +789,7 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 		if verifies+verifyFailures > 0 {
 			verifyRate = float64(verifies) / float64(verifies+verifyFailures) * 100
 		}
-		fmt.Printf("--- L1 Verification (Set -> L1.Get) ---\n")
+		fmt.Printf("--- L1 Verification (L0.Set -> L1.Get) ---\n")
 		fmt.Printf("  Successful Verifications: %d\n", verifies)
 		fmt.Printf("  Failed Verifications: %d\n", verifyFailures)
 		fmt.Printf("  Verification Rate: %.2f%%\n\n", verifyRate)
@@ -795,7 +803,7 @@ func printFinalStats(stats *LoadTestStats, cache *tieredcache.TieredCache, paylo
 		if l1DirectVerifies+l1DirectFailures > 0 {
 			l1DirectRate = float64(l1DirectVerifies) / float64(l1DirectVerifies+l1DirectFailures) * 100
 		}
-		fmt.Printf("--- L1 Direct Verification (L1.Set -> Get) ---\n")
+		fmt.Printf("--- L1 Direct Verification (L1.Set -> L0.Get) ---\n")
 		fmt.Printf("  Successful Verifications: %d\n", l1DirectVerifies)
 		fmt.Printf("  Failed Verifications: %d\n", l1DirectFailures)
 		fmt.Printf("  Verification Rate: %.2f%%\n\n", l1DirectRate)

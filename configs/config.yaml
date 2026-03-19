@@ -18,7 +18,7 @@ tieredcache:
   # L1 Badger SSD Cache
   l1:
     max_capacity_gb: 8          # 10TB = 10240GB
-    shard_count: 12               # 32 shards
+    shard_count: 32               # 32 shards
     ssd_path: ./data         # SSD mount point
     value_log_path: ./datalog   # Separate volume recommended
     sync_mode: immediate           # periodic or immediate, disabled
